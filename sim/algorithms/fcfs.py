@@ -51,6 +51,13 @@ class FCFSAlgorithm(Algorithm):
             if e.id not in self._pickup_assignments and e.is_empty
         ]
 
+        # Track floors already being served by assigned elevators
+        floors_being_served: set[int] = set()
+        for eid, pid in self._pickup_assignments.items():
+            p = self._find_passenger(building, pid)
+            if p is not None:
+                floors_being_served.add(p.origin)
+
         while self._queue and idle_elevators:
             pid = self._queue[0]
             if not self._passenger_still_waiting(building, pid):
@@ -63,12 +70,20 @@ class FCFSAlgorithm(Algorithm):
                 self._queue.pop(0)
                 continue
 
+            # Skip passengers on floors already being served —
+            # the elevator going there will pick up everyone anyway
+            if passenger.origin in floors_being_served:
+                self._queue.pop(0)
+                self._assigned.add(pid)  # mark as handled
+                continue
+
             nearest = min(
                 idle_elevators,
                 key=lambda e: abs(e.floor - passenger.origin),
             )
             self._pickup_assignments[nearest.id] = pid
             self._assigned.add(pid)
+            floors_being_served.add(passenger.origin)
             idle_elevators.remove(nearest)
             self._queue.pop(0)
 

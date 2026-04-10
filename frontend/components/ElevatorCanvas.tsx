@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
-import type { StateFrame, ElevatorState } from "@/lib/types";
+import { useRef, useEffect } from "react";
+import type { StateFrame } from "@/lib/types";
 
 interface Props {
   frame: StateFrame | null;
@@ -19,6 +19,7 @@ const CABIN_SIZE = 60;
 const LEFT_MARGIN = 60;
 const TOP_MARGIN = 30;
 const PASSENGER_RADIUS = 6;
+const CHASE_SPEED = 0.12; // lower = smoother but laggier (0.08-0.2 sweet spot)
 
 const COLORS = {
   bg: "#0f172a",
@@ -37,21 +38,64 @@ const COLORS = {
   phaseText: "#64748b",
 };
 
+/** Persistent visual state that survives re-renders. */
+interface ElevVisual {
+  y: number;            // current visual Y position (pixels)
+  targetY: number;      // Y we're chasing toward
+  prevPaxCount: number; // for exit flash
+  exitFlashY: number;
+  exitFlashCount: number;
+  exitFlashAlpha: number;
+}
+
 export default function ElevatorCanvas({
   frame,
   prevFrame,
   width = 500,
   height = 560,
-  speed = 500,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
-  const startTimeRef = useRef<number>(0);
+  const elevsRef = useRef<Map<number, ElevVisual>>(new Map());
 
-  const draw = useCallback(
-    (timestamp: number) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+  // Update targets when frame changes
+  useEffect(() => {
+    if (!frame) return;
+    for (const elev of frame.elevators) {
+      const dir = elev.direction === "up" ? 1 : elev.direction === "down" ? -1 : 0;
+      const visualFloor = elev.floor + elev.progress * dir;
+      const targetY = floorYSmooth(visualFloor) - CABIN_SIZE;
+
+      let vis = elevsRef.current.get(elev.id);
+      if (!vis) {
+        vis = {
+          y: targetY,
+          targetY,
+          prevPaxCount: elev.passengers.length,
+          exitFlashY: 0,
+          exitFlashCount: 0,
+          exitFlashAlpha: 0,
+        };
+        elevsRef.current.set(elev.id, vis);
+      } else {
+        vis.targetY = targetY;
+        // Detect passenger exit
+        if (elev.passengers.length < vis.prevPaxCount && elev.doors) {
+          vis.exitFlashCount = vis.prevPaxCount - elev.passengers.length;
+          vis.exitFlashY = floorYSmooth(elev.floor) - 10;
+          vis.exitFlashAlpha = 1.0;
+        }
+        vis.prevPaxCount = elev.passengers.length;
+      }
+    }
+  }, [frame]);
+
+  // Continuous animation loop — runs independent of frame arrival
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const loop = () => {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
@@ -62,26 +106,23 @@ export default function ElevatorCanvas({
       canvas.style.height = `${height}px`;
       ctx.scale(dpr, dpr);
 
-      if (!startTimeRef.current) startTimeRef.current = timestamp;
-      const elapsed = timestamp - startTimeRef.current;
-      const animDuration = Math.max(speed * 0.9, 30);
-      const t = Math.min(elapsed / animDuration, 1);
-
-      drawScene(ctx, frame, prevFrame, t, width, height);
-
-      if (t < 1) {
-        animRef.current = requestAnimationFrame(draw);
+      // Chase targets
+      for (const vis of elevsRef.current.values()) {
+        vis.y += (vis.targetY - vis.y) * CHASE_SPEED;
+        // Decay exit flash
+        if (vis.exitFlashAlpha > 0) {
+          vis.exitFlashAlpha -= 0.02;
+          vis.exitFlashY -= 0.3;
+        }
       }
-    },
-    [frame, prevFrame, width, height, speed]
-  );
 
-  useEffect(() => {
-    cancelAnimationFrame(animRef.current);
-    startTimeRef.current = 0;
-    animRef.current = requestAnimationFrame(draw);
+      drawScene(ctx, frame, elevsRef.current, width, height);
+      animRef.current = requestAnimationFrame(loop);
+    };
+
+    animRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animRef.current);
-  }, [draw]);
+  }, [frame, width, height]);
 
   return (
     <canvas
@@ -91,11 +132,6 @@ export default function ElevatorCanvas({
   );
 }
 
-function ease(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
-}
-
-/** Convert a fractional floor position to canvas Y. */
 function floorYSmooth(floor: number): number {
   return TOP_MARGIN + (NUM_FLOORS - 1 - floor) * FLOOR_HEIGHT + FLOOR_HEIGHT;
 }
@@ -104,32 +140,10 @@ function shaftX(i: number): number {
   return LEFT_MARGIN + i * (SHAFT_WIDTH + SHAFT_GAP);
 }
 
-/** Compute smooth visual floor from backend state.
- *
- * The backend sends: floor (int), direction, progress (0-1).
- * During movement phases, progress goes 0→1 as the elevator
- * transitions from `floor` toward the next floor in `direction`.
- */
-function visualFloor(elev: ElevatorState, prevElev: ElevatorState | undefined, t: number): number {
-  // Use backend progress directly — it already encodes accel/decel timing
-  const dir = elev.direction === "up" ? 1 : elev.direction === "down" ? -1 : 0;
-  const targetProgress = elev.progress * dir;
-
-  if (!prevElev) return elev.floor + targetProgress;
-
-  const prevDir = prevElev.direction === "up" ? 1 : prevElev.direction === "down" ? -1 : 0;
-  const prevVisual = prevElev.floor + prevElev.progress * prevDir;
-  const currVisual = elev.floor + targetProgress;
-
-  // Smooth interpolation between previous and current visual position
-  return prevVisual + (currVisual - prevVisual) * ease(t);
-}
-
 function drawScene(
   ctx: CanvasRenderingContext2D,
   frame: StateFrame | null,
-  prevFrame: StateFrame | null,
-  t: number,
+  elevVisuals: Map<number, ElevVisual>,
   w: number,
   h: number
 ) {
@@ -163,35 +177,32 @@ function drawScene(
 
   // Shafts
   for (let e = 0; e < numElev; e++) {
-    const x = shaftX(e);
+    const sx = shaftX(e);
     ctx.fillStyle = COLORS.shaft;
     ctx.strokeStyle = COLORS.shaftBorder;
     ctx.lineWidth = 1;
-    ctx.fillRect(x, TOP_MARGIN, SHAFT_WIDTH, NUM_FLOORS * FLOOR_HEIGHT);
-    ctx.strokeRect(x, TOP_MARGIN, SHAFT_WIDTH, NUM_FLOORS * FLOOR_HEIGHT);
+    ctx.fillRect(sx, TOP_MARGIN, SHAFT_WIDTH, NUM_FLOORS * FLOOR_HEIGHT);
+    ctx.strokeRect(sx, TOP_MARGIN, SHAFT_WIDTH, NUM_FLOORS * FLOOR_HEIGHT);
   }
 
   // Cabins
   for (const elev of frame.elevators) {
-    const prevElev = prevFrame?.elevators.find((e) => e.id === elev.id);
-    const vFloor = visualFloor(elev, prevElev, t);
-
+    const vis = elevVisuals.get(elev.id);
     const x = shaftX(elev.id) + (SHAFT_WIDTH - CABIN_SIZE) / 2;
-    const y = floorYSmooth(vFloor) - CABIN_SIZE;
+    const y = vis ? vis.y : floorYSmooth(elev.floor) - CABIN_SIZE;
 
-    // Cabin color based on phase
-    let cabinColor = COLORS.cabin;
-    if (elev.phase === "accelerating") cabinColor = COLORS.cabinAccel;
-    else if (elev.phase === "decelerating") cabinColor = COLORS.cabinDecel;
-    ctx.fillStyle = cabinColor;
+    // Color by phase
+    let col = COLORS.cabin;
+    if (elev.phase === "accelerating") col = COLORS.cabinAccel;
+    else if (elev.phase === "decelerating") col = COLORS.cabinDecel;
+    ctx.fillStyle = col;
     ctx.fillRect(x, y, CABIN_SIZE, CABIN_SIZE);
 
     // Doors
     if (elev.doors) {
       ctx.fillStyle = COLORS.cabinDoors;
-      const openAmount = elev.phase === "boarding" ? 8 : ease(t) * 8;
-      ctx.fillRect(x + openAmount, y, CABIN_SIZE / 2 - openAmount, CABIN_SIZE);
-      ctx.fillRect(x + CABIN_SIZE / 2, y, CABIN_SIZE / 2 - openAmount, CABIN_SIZE);
+      ctx.fillRect(x + 8, y, CABIN_SIZE / 2 - 8, CABIN_SIZE);
+      ctx.fillRect(x + CABIN_SIZE / 2, y, CABIN_SIZE / 2 - 8, CABIN_SIZE);
     }
 
     // Passengers inside
@@ -204,22 +215,20 @@ function drawScene(
       ctx.fill();
     }
 
-    // Exiting passengers flash
-    if (prevElev && prevElev.passengers.length > elev.passengers.length && t < 0.8) {
-      const dropped = prevElev.passengers.length - elev.passengers.length;
+    // Exit flash
+    if (vis && vis.exitFlashAlpha > 0 && vis.exitFlashCount > 0) {
       const exitX = shaftX(elev.id) + SHAFT_WIDTH + 5;
-      const exitY = floorYSmooth(elev.floor);
-      ctx.globalAlpha = 1 - t / 0.8;
-      for (let i = 0; i < dropped; i++) {
+      ctx.globalAlpha = Math.max(0, vis.exitFlashAlpha);
+      for (let i = 0; i < vis.exitFlashCount; i++) {
         ctx.fillStyle = COLORS.passengerExiting;
         ctx.beginPath();
-        ctx.arc(exitX + i * 14, exitY - 10 - t * 20, PASSENGER_RADIUS, 0, Math.PI * 2);
+        ctx.arc(exitX + i * 14, vis.exitFlashY, PASSENGER_RADIUS, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.globalAlpha = 1;
     }
 
-    // Label + direction
+    // Label
     ctx.fillStyle = COLORS.text;
     ctx.font = "10px monospace";
     ctx.textAlign = "center";
@@ -238,10 +247,10 @@ function drawScene(
   // Waiting passengers
   const waitX = LEFT_MARGIN + numElev * (SHAFT_WIDTH + SHAFT_GAP) + 20;
   for (const floor of frame.floors) {
-    const y = floorYSmooth(floor.floor);
+    const fy = floorYSmooth(floor.floor);
     for (let i = 0; i < floor.waiting.length; i++) {
       const px = waitX + i * 16;
-      const py = y - 10;
+      const py = fy - 10;
       ctx.fillStyle = COLORS.passengerWaiting;
       ctx.beginPath();
       ctx.arc(px, py, PASSENGER_RADIUS, 0, Math.PI * 2);
