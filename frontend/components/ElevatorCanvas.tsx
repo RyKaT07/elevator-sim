@@ -231,11 +231,17 @@ function draw(
     ctx.fillStyle = col;
     ctx.fillRect(x, y, CABIN_SIZE, CABIN_SIZE);
 
-    // Doors
-    if (elev.doors) {
+    // Doors — smooth open/close via door_progress
+    const curDoor = elev.door_progress ?? 0;
+    const nxtDoor = nxtElev?.door_progress ?? curDoor;
+    const doorP = curDoor + (nxtDoor - curDoor) * t;
+    if (doorP > 0.01) {
       ctx.fillStyle = COLORS.cabinDoors;
-      ctx.fillRect(x + 8, y, CABIN_SIZE / 2 - 8, CABIN_SIZE);
-      ctx.fillRect(x + CABIN_SIZE / 2, y, CABIN_SIZE / 2 - 8, CABIN_SIZE);
+      const maxGap = CABIN_SIZE / 2 - 4;
+      const gap = doorP * maxGap;
+      // Left door slides left, right door slides right
+      ctx.fillRect(x, y, CABIN_SIZE / 2 - gap, CABIN_SIZE);
+      ctx.fillRect(x + CABIN_SIZE / 2 + gap, y, CABIN_SIZE / 2 - gap, CABIN_SIZE);
     }
 
     // Passengers inside

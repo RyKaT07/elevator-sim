@@ -21,7 +21,9 @@ class MovePhase(Enum):
     ACCELERATING = "accelerating"
     CRUISING = "cruising"
     DECELERATING = "decelerating"
+    DOORS_OPENING = "doors_opening"
     BOARDING = "boarding"
+    DOORS_CLOSING = "doors_closing"
 
 
 @dataclass
@@ -102,10 +104,11 @@ class Building:
     elevators: list[Elevator] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        from sim.config import ELEVATOR_CAPACITY
         if not self.floors:
             self.floors = [Floor(number=i) for i in range(self.num_floors)]
         if not self.elevators:
-            self.elevators = [Elevator(id=i) for i in range(self.num_elevators)]
+            self.elevators = [Elevator(id=i, capacity=ELEVATOR_CAPACITY) for i in range(self.num_elevators)]
 
     def get_floor(self, number: int) -> Floor:
         return self.floors[number]

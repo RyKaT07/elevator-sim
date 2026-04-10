@@ -158,10 +158,24 @@ class Simulation:
             self._do_floor_move(elev, is_decel=True)
             self._arrive(elev)
 
+        elif elev.phase == MovePhase.DOORS_OPENING:
+            # Doors fully open — now transfer passengers
+            elev.doors = DoorState.OPEN
+            pax_count = self._transfer_passengers(elev)
+            board_ticks = max(1, cfg.BOARD_BASE_TICKS + math.ceil(pax_count * cfg.BOARD_PER_PAX_TICKS))
+            elev.phase = MovePhase.BOARDING
+            elev.phase_ticks_left = board_ticks
+            elev.phase_ticks_total = board_ticks
+
         elif elev.phase == MovePhase.BOARDING:
-            # Boarding complete, elevator becomes idle
-            elev.phase = MovePhase.IDLE
+            # Boarding done — close doors
+            elev.phase = MovePhase.DOORS_CLOSING
+            elev.phase_ticks_left = cfg.DOORS_CLOSE_TICKS
+            elev.phase_ticks_total = cfg.DOORS_CLOSE_TICKS
+
+        elif elev.phase == MovePhase.DOORS_CLOSING:
             elev.doors = DoorState.CLOSED
+            elev.phase = MovePhase.IDLE
 
     def _do_floor_move(
         self, elev: Elevator, is_accel: bool = False, is_decel: bool = False
@@ -184,20 +198,25 @@ class Simulation:
         elev.direction = Direction.IDLE
         self.metrics_collector.record_elevator_stop(elev.id)
 
-    # ── Boarding ────────────────────────────────────────────────────
+    # ── Boarding (door sequence) ───────────────────────────────────
 
     def _start_boarding(self, elev: Elevator) -> None:
-        elev.doors = DoorState.OPEN
+        """Begin door opening sequence: DOORS_OPENING → BOARDING → DOORS_CLOSING."""
         self.metrics_collector.record_elevator_stop(elev.id)
+        elev.phase = MovePhase.DOORS_OPENING
+        elev.phase_ticks_left = cfg.DOORS_OPEN_TICKS
+        elev.phase_ticks_total = cfg.DOORS_OPEN_TICKS
 
-        # Exit passengers
+    def _transfer_passengers(self, elev: Elevator) -> int:
+        """Move passengers in/out. Returns total count for boarding time calc."""
+        # Exit
         exiting = [p for p in elev.passengers if p.destination == elev.floor]
         for p in exiting:
             p.dropoff_tick = self.tick
             elev.passengers.remove(p)
             self._delivered.append(p)
 
-        # Board passengers
+        # Board
         floor = self.building.get_floor(elev.floor)
         boarding = []
         for p in floor.waiting:
@@ -209,13 +228,7 @@ class Simulation:
             floor.waiting.remove(p)
             elev.passengers.append(p)
 
-        # Boarding time proportional to passenger count
-        pax_count = len(exiting) + len(boarding)
-        board_ticks = cfg.BOARD_BASE_TICKS + math.ceil(pax_count * cfg.BOARD_PER_PAX_TICKS)
-
-        elev.phase = MovePhase.BOARDING
-        elev.phase_ticks_left = board_ticks
-        elev.phase_ticks_total = board_ticks
+        return len(exiting) + len(boarding)
 
     # ── Queries ─────────────────────────────────────────────────────
 
@@ -227,12 +240,23 @@ class Simulation:
         progress ramps from 0→1 as phase_ticks count down. During idle/boarding,
         progress is 0 (elevator is stationary at floor).
         """
-        if e.phase in (MovePhase.IDLE, MovePhase.BOARDING):
+        if e.phase in (MovePhase.IDLE, MovePhase.BOARDING, MovePhase.DOORS_OPENING, MovePhase.DOORS_CLOSING):
             return 0.0
         if e.phase_ticks_total == 0:
             return 0.0
         # progress = how much of the phase is done (0 = just started, 1 = done)
         return 1.0 - (e.phase_ticks_left / e.phase_ticks_total)
+
+    @staticmethod
+    def _door_progress(e: Elevator) -> float:
+        """0.0 = closed, 1.0 = fully open."""
+        if e.phase == MovePhase.DOORS_OPENING and e.phase_ticks_total > 0:
+            return 1.0 - (e.phase_ticks_left / e.phase_ticks_total)
+        if e.phase == MovePhase.BOARDING:
+            return 1.0
+        if e.phase == MovePhase.DOORS_CLOSING and e.phase_ticks_total > 0:
+            return e.phase_ticks_left / e.phase_ticks_total
+        return 0.0
 
     def _is_done(self) -> bool:
         return len(self._delivered) == len(self.passengers)
@@ -254,6 +278,7 @@ class Simulation:
                     # progress: 0.0 = just started moving from floor,
                     #           1.0 = about to arrive at next floor
                     "progress": self._elevator_progress(e),
+                    "door_progress": self._door_progress(e),
                     "passengers": [
                         {"id": p.id, "destination": p.destination}
                         for p in e.passengers

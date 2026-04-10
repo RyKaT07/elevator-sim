@@ -25,13 +25,19 @@ CRUISE_TICKS: int = int(_env("CRUISE_TICKS", 2))
 # Deceleration: last floor before stopping
 DECEL_TICKS: int = int(_env("DECEL_TICKS", 2))
 
+# ── Door timing ─────────────────────────────────────────────────────
+
+DOORS_OPEN_TICKS: int = int(_env("DOORS_OPEN_TICKS", 2))
+DOORS_CLOSE_TICKS: int = int(_env("DOORS_CLOSE_TICKS", 2))
+
 # ── Boarding timing ─────────────────────────────────────────────────
 
-# Base time doors stay open (even if 0 passengers)
-BOARD_BASE_TICKS: int = int(_env("BOARD_BASE_TICKS", 2))
-
-# Extra ticks per passenger boarding or exiting
+BOARD_BASE_TICKS: int = int(_env("BOARD_BASE_TICKS", 1))
 BOARD_PER_PAX_TICKS: float = float(_env("BOARD_PER_PAX_TICKS", 0.5))
+
+# ── Elevator capacity ──────────────────────────────────────────────
+
+ELEVATOR_CAPACITY: int = int(_env("ELEVATOR_CAPACITY", 8))
 
 # ── Energy costs (arbitrary units per floor) ────────────────────────
 

@@ -9,8 +9,9 @@ export interface ElevatorState {
   floor: number;
   direction: "up" | "down" | "idle";
   doors: boolean;
-  phase: "idle" | "accelerating" | "cruising" | "decelerating" | "boarding";
-  progress: number; // 0-1, how far to next floor
+  phase: "idle" | "accelerating" | "cruising" | "decelerating" | "doors_opening" | "boarding" | "doors_closing";
+  progress: number;
+  door_progress: number; // 0=closed, 1=fully open
   passengers: PassengerState[];
 }
 
