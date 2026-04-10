@@ -56,8 +56,10 @@ function shaftX(i: number): number {
 }
 
 function ease(t: number): number {
-  // Smooth ease-in-out
-  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+  // Linear — the backend's tick structure already encodes
+  // acceleration/deceleration via progress values. Adding
+  // ease on top creates a pulsing "double-easing" effect.
+  return t;
 }
 
 function elevTargetY(elev: { floor: number; direction: string; progress: number }): number {
