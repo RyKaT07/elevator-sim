@@ -78,10 +78,13 @@ export default function ElevatorCanvas({
   const animRef = useRef<number>(0);
   const elevsRef = useRef<Map<number, ElevAnim>>(new Map());
   const frameRef = useRef<StateFrame | null>(null);
+  const prevFrameRef = useRef<StateFrame | null>(null);
+  const displayFrameRef = useRef<StateFrame | null>(null);
   const speedRef = useRef(speed);
   const sizedRef = useRef(false);
 
   frameRef.current = frame;
+  prevFrameRef.current = prevFrame;
   speedRef.current = speed;
 
   // When frame changes: set new animation targets
@@ -150,16 +153,26 @@ export default function ElevatorCanvas({
       const spd = speedRef.current;
       const curFrame = frameRef.current;
 
-      // Compute current Y for each elevator
+      // Compute current Y and animation progress for each elevator
       const positions = new Map<number, number>();
+      let minT = 1;
       for (const [id, anim] of elevsRef.current) {
         const elapsed = now - anim.animStart;
         const duration = spd * 0.95;
         const t = Math.min(elapsed / duration, 1);
         positions.set(id, anim.startY + (anim.targetY - anim.startY) * ease(t));
+        minT = Math.min(minT, t);
       }
 
-      drawScene(ctx, curFrame, positions, elevsRef.current, now, width, height);
+      // Show passengers/floors from previous frame until elevators
+      // have nearly reached their targets (prevents passengers
+      // teleporting into the elevator before it visually arrives)
+      if (minT > 0.85 || !prevFrameRef.current) {
+        displayFrameRef.current = curFrame;
+      }
+      const displayFrame = displayFrameRef.current ?? curFrame;
+
+      drawScene(ctx, curFrame, displayFrame, positions, elevsRef.current, now, width, height);
       animRef.current = requestAnimationFrame(loop);
     };
 
@@ -177,7 +190,8 @@ export default function ElevatorCanvas({
 
 function drawScene(
   ctx: CanvasRenderingContext2D,
-  frame: StateFrame | null,
+  frame: StateFrame | null,         // for elevator positions/phases
+  displayFrame: StateFrame | null,  // for passengers/floors (lags behind)
   positions: Map<number, number>,
   anims: Map<number, ElevAnim>,
   now: number,
@@ -187,7 +201,7 @@ function drawScene(
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, w, h);
 
-  if (!frame) {
+  if (!frame || !displayFrame) {
     ctx.fillStyle = COLORS.text;
     ctx.font = "16px monospace";
     ctx.textAlign = "center";
@@ -241,8 +255,10 @@ function drawScene(
       ctx.fillRect(x + CABIN_SIZE / 2, y, CABIN_SIZE / 2 - 8, CABIN_SIZE);
     }
 
-    // Passengers inside
-    for (let i = 0; i < elev.passengers.length; i++) {
+    // Passengers inside (from display frame to sync with visual position)
+    const dispElev = displayFrame.elevators.find(e => e.id === elev.id);
+    const paxList = dispElev?.passengers ?? elev.passengers;
+    for (let i = 0; i < paxList.length; i++) {
       const px = x + 10 + (i % 4) * 14;
       const py = y + 15 + Math.floor(i / 4) * 14;
       ctx.fillStyle = COLORS.passengerInside;
@@ -287,9 +303,9 @@ function drawScene(
     }
   }
 
-  // Waiting passengers
+  // Waiting passengers (from display frame)
   const waitX = LEFT_MARGIN + numElev * (SHAFT_WIDTH + SHAFT_GAP) + 20;
-  for (const floor of frame.floors) {
+  for (const floor of displayFrame.floors) {
     const fy = floorYSmooth(floor.floor);
     for (let i = 0; i < floor.waiting.length; i++) {
       const px = waitX + i * 16;
