@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, type MutableRefObject } from "react";
-import type { StateFrame, Summary } from "@/lib/types";
+import type { StateFrame } from "@/lib/types";
 
 interface Props {
   allFramesRef: MutableRefObject<StateFrame[]>;
@@ -10,7 +10,7 @@ interface Props {
   speed: number;
   width?: number;
   height?: number;
-  onComplete?: (summary: Summary | null) => void;
+  onComplete?: () => void;
 }
 
 const NUM_FLOORS = 7;
@@ -127,7 +127,7 @@ export default function ElevatorCanvas({
 
           if (idxRef.current >= frames.length - 1) {
             runningRef.current = false;
-            onCompleteRef.current?.(null);
+            onCompleteRef.current?.();
           }
         }
       }

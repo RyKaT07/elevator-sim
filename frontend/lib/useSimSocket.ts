@@ -12,8 +12,9 @@ export function useSimSocket() {
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(500);
 
-  const [playbackToken, setPlaybackToken] = useState(0); // increments to trigger canvas start
+  const [playbackToken, setPlaybackToken] = useState(0);
   const allFramesRef = useRef<StateFrame[]>([]);
+  const summaryRef = useRef<Summary | null>(null);
 
   const run = useCallback(async (req: RunRequest) => {
     setError(null);
@@ -35,7 +36,8 @@ export function useSimSocket() {
       const result = await framesRes.json();
 
       allFramesRef.current = result.frames;
-      setPlaybackToken(t => t + 1); // triggers canvas useEffect
+      summaryRef.current = result.summary as Summary;
+      setPlaybackToken(t => t + 1);
       setIsRunning(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -48,9 +50,9 @@ export function useSimSocket() {
     setIsRunning(false);
   }, []);
 
-  const onPlaybackComplete = useCallback((sum: Summary | null) => {
+  const onPlaybackComplete = useCallback(() => {
     setIsRunning(false);
-    if (sum) setSummary(sum);
+    if (summaryRef.current) setSummary(summaryRef.current);
   }, []);
 
   return {
