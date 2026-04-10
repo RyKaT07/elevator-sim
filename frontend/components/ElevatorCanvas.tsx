@@ -8,7 +8,7 @@ interface Props {
   prevFrame: StateFrame | null;
   width?: number;
   height?: number;
-  speed?: number;
+  speed?: number; // ms per tick
 }
 
 const NUM_FLOORS = 7;
@@ -19,7 +19,6 @@ const CABIN_SIZE = 60;
 const LEFT_MARGIN = 60;
 const TOP_MARGIN = 30;
 const PASSENGER_RADIUS = 6;
-const CHASE_LERP = 6; // units per second — higher = snappier
 
 const COLORS = {
   bg: "#0f172a",
@@ -38,109 +37,14 @@ const COLORS = {
   phaseText: "#64748b",
 };
 
-interface ElevVisual {
-  y: number;
-  targetY: number;
+interface ElevAnim {
+  startY: number;      // Y at animation start
+  targetY: number;     // Y we're animating toward
+  animStart: number;   // timestamp when animation began
   prevPaxCount: number;
+  exitFlashStart: number;
   exitFlashY: number;
   exitFlashCount: number;
-  exitFlashAlpha: number;
-}
-
-export default function ElevatorCanvas({
-  frame,
-  prevFrame,
-  width = 500,
-  height = 560,
-}: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animRef = useRef<number>(0);
-  const elevsRef = useRef<Map<number, ElevVisual>>(new Map());
-  const frameRef = useRef<StateFrame | null>(null);
-  const lastTimeRef = useRef<number>(0);
-  const sizedRef = useRef(false);
-
-  // Store frame in ref so animation loop always sees latest without restarting
-  frameRef.current = frame;
-
-  // Update targets when frame changes (no animation loop restart)
-  useEffect(() => {
-    if (!frame) return;
-    for (const elev of frame.elevators) {
-      const dir = elev.direction === "up" ? 1 : elev.direction === "down" ? -1 : 0;
-      const visualFloor = elev.floor + elev.progress * dir;
-      const targetY = floorYSmooth(visualFloor) - CABIN_SIZE;
-
-      let vis = elevsRef.current.get(elev.id);
-      if (!vis) {
-        vis = {
-          y: targetY, targetY,
-          prevPaxCount: elev.passengers.length,
-          exitFlashY: 0, exitFlashCount: 0, exitFlashAlpha: 0,
-        };
-        elevsRef.current.set(elev.id, vis);
-      } else {
-        vis.targetY = targetY;
-        if (elev.passengers.length < vis.prevPaxCount && elev.doors) {
-          vis.exitFlashCount = vis.prevPaxCount - elev.passengers.length;
-          vis.exitFlashY = floorYSmooth(elev.floor) - 10;
-          vis.exitFlashAlpha = 1.0;
-        }
-        vis.prevPaxCount = elev.passengers.length;
-      }
-    }
-  }, [frame]);
-
-  // Single stable animation loop — started once on mount
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const loop = (now: number) => {
-      // Size canvas once (or on resize)
-      if (!sizedRef.current) {
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${height}px`;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        sizedRef.current = true;
-      }
-
-      // Delta time for frame-rate independent animation
-      const dt = lastTimeRef.current ? Math.min((now - lastTimeRef.current) / 1000, 0.1) : 0.016;
-      lastTimeRef.current = now;
-
-      // Chase targets (exponential decay, frame-rate independent)
-      const factor = 1 - Math.exp(-CHASE_LERP * dt);
-      for (const vis of elevsRef.current.values()) {
-        vis.y += (vis.targetY - vis.y) * factor;
-        if (vis.exitFlashAlpha > 0) {
-          vis.exitFlashAlpha -= 1.5 * dt;
-          vis.exitFlashY -= 30 * dt;
-        }
-      }
-
-      // Clear and draw (no resize!)
-      ctx.clearRect(0, 0, width, height);
-      drawScene(ctx, frameRef.current, elevsRef.current, width, height);
-
-      animRef.current = requestAnimationFrame(loop);
-    };
-
-    animRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animRef.current);
-  }, [width, height]); // only restart on dimension change
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="rounded-lg border border-slate-700"
-    />
-  );
 }
 
 function floorYSmooth(floor: number): number {
@@ -151,12 +55,132 @@ function shaftX(i: number): number {
   return LEFT_MARGIN + i * (SHAFT_WIDTH + SHAFT_GAP);
 }
 
+function ease(t: number): number {
+  // Smooth ease-in-out
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+}
+
+function elevTargetY(elev: { floor: number; direction: string; progress: number }): number {
+  const dir = elev.direction === "up" ? 1 : elev.direction === "down" ? -1 : 0;
+  return floorYSmooth(elev.floor + elev.progress * dir) - CABIN_SIZE;
+}
+
+export default function ElevatorCanvas({
+  frame,
+  prevFrame,
+  width = 500,
+  height = 560,
+  speed = 500,
+}: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animRef = useRef<number>(0);
+  const elevsRef = useRef<Map<number, ElevAnim>>(new Map());
+  const frameRef = useRef<StateFrame | null>(null);
+  const speedRef = useRef(speed);
+  const sizedRef = useRef(false);
+
+  frameRef.current = frame;
+  speedRef.current = speed;
+
+  // When frame changes: set new animation targets
+  useEffect(() => {
+    if (!frame) return;
+    const now = performance.now();
+
+    for (const elev of frame.elevators) {
+      const newTarget = elevTargetY(elev);
+      let anim = elevsRef.current.get(elev.id);
+
+      if (!anim) {
+        anim = {
+          startY: newTarget,
+          targetY: newTarget,
+          animStart: now,
+          prevPaxCount: elev.passengers.length,
+          exitFlashStart: 0,
+          exitFlashY: 0,
+          exitFlashCount: 0,
+        };
+        elevsRef.current.set(elev.id, anim);
+      } else {
+        // Current interpolated position becomes new start
+        const elapsed = now - anim.animStart;
+        const duration = speedRef.current * 0.95;
+        const t = Math.min(elapsed / duration, 1);
+        const currentY = anim.startY + (anim.targetY - anim.startY) * ease(t);
+
+        anim.startY = currentY;
+        anim.targetY = newTarget;
+        anim.animStart = now;
+
+        // Detect passenger exit
+        if (elev.passengers.length < anim.prevPaxCount && elev.doors) {
+          anim.exitFlashCount = anim.prevPaxCount - elev.passengers.length;
+          anim.exitFlashY = floorYSmooth(elev.floor) - 10;
+          anim.exitFlashStart = now;
+        }
+        anim.prevPaxCount = elev.passengers.length;
+      }
+    }
+  }, [frame]);
+
+  // Single animation loop — stable, never restarts on frame changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const loop = () => {
+      if (!sizedRef.current) {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        sizedRef.current = true;
+      }
+
+      ctx.clearRect(0, 0, width, height);
+
+      const now = performance.now();
+      const spd = speedRef.current;
+      const curFrame = frameRef.current;
+
+      // Compute current Y for each elevator
+      const positions = new Map<number, number>();
+      for (const [id, anim] of elevsRef.current) {
+        const elapsed = now - anim.animStart;
+        const duration = spd * 0.95;
+        const t = Math.min(elapsed / duration, 1);
+        positions.set(id, anim.startY + (anim.targetY - anim.startY) * ease(t));
+      }
+
+      drawScene(ctx, curFrame, positions, elevsRef.current, now, width, height);
+      animRef.current = requestAnimationFrame(loop);
+    };
+
+    animRef.current = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [width, height]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="rounded-lg border border-slate-700"
+    />
+  );
+}
+
 function drawScene(
   ctx: CanvasRenderingContext2D,
   frame: StateFrame | null,
-  elevVisuals: Map<number, ElevVisual>,
+  positions: Map<number, number>,
+  anims: Map<number, ElevAnim>,
+  now: number,
   w: number,
-  h: number
+  h: number,
 ) {
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, w, h);
@@ -198,11 +222,10 @@ function drawScene(
 
   // Cabins
   for (const elev of frame.elevators) {
-    const vis = elevVisuals.get(elev.id);
     const x = shaftX(elev.id) + (SHAFT_WIDTH - CABIN_SIZE) / 2;
-    const y = vis ? vis.y : floorYSmooth(elev.floor) - CABIN_SIZE;
+    const y = positions.get(elev.id) ?? (floorYSmooth(elev.floor) - CABIN_SIZE);
 
-    // Color by phase
+    // Phase color
     let col = COLORS.cabin;
     if (elev.phase === "accelerating") col = COLORS.cabinAccel;
     else if (elev.phase === "decelerating") col = COLORS.cabinDecel;
@@ -227,16 +250,22 @@ function drawScene(
     }
 
     // Exit flash
-    if (vis && vis.exitFlashAlpha > 0 && vis.exitFlashCount > 0) {
-      const exitX = shaftX(elev.id) + SHAFT_WIDTH + 5;
-      ctx.globalAlpha = Math.max(0, vis.exitFlashAlpha);
-      for (let i = 0; i < vis.exitFlashCount; i++) {
-        ctx.fillStyle = COLORS.passengerExiting;
-        ctx.beginPath();
-        ctx.arc(exitX + i * 14, vis.exitFlashY, PASSENGER_RADIUS, 0, Math.PI * 2);
-        ctx.fill();
+    const anim = anims.get(elev.id);
+    if (anim && anim.exitFlashCount > 0 && anim.exitFlashStart > 0) {
+      const age = (now - anim.exitFlashStart) / 1000;
+      const alpha = Math.max(0, 1 - age * 1.5);
+      if (alpha > 0) {
+        const exitX = shaftX(elev.id) + SHAFT_WIDTH + 5;
+        const flashY = anim.exitFlashY - age * 30;
+        ctx.globalAlpha = alpha;
+        for (let i = 0; i < anim.exitFlashCount; i++) {
+          ctx.fillStyle = COLORS.passengerExiting;
+          ctx.beginPath();
+          ctx.arc(exitX + i * 14, flashY, PASSENGER_RADIUS, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
     }
 
     // Label + arrow
