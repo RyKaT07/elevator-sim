@@ -19,7 +19,7 @@ const CABIN_SIZE = 60;
 const LEFT_MARGIN = 60;
 const TOP_MARGIN = 30;
 const PASSENGER_RADIUS = 6;
-const CHASE_SPEED = 0.12; // lower = smoother but laggier (0.08-0.2 sweet spot)
+const CHASE_LERP = 6; // units per second — higher = snappier
 
 const COLORS = {
   bg: "#0f172a",
@@ -38,11 +38,10 @@ const COLORS = {
   phaseText: "#64748b",
 };
 
-/** Persistent visual state that survives re-renders. */
 interface ElevVisual {
-  y: number;            // current visual Y position (pixels)
-  targetY: number;      // Y we're chasing toward
-  prevPaxCount: number; // for exit flash
+  y: number;
+  targetY: number;
+  prevPaxCount: number;
   exitFlashY: number;
   exitFlashCount: number;
   exitFlashAlpha: number;
@@ -57,8 +56,14 @@ export default function ElevatorCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
   const elevsRef = useRef<Map<number, ElevVisual>>(new Map());
+  const frameRef = useRef<StateFrame | null>(null);
+  const lastTimeRef = useRef<number>(0);
+  const sizedRef = useRef(false);
 
-  // Update targets when frame changes
+  // Store frame in ref so animation loop always sees latest without restarting
+  frameRef.current = frame;
+
+  // Update targets when frame changes (no animation loop restart)
   useEffect(() => {
     if (!frame) return;
     for (const elev of frame.elevators) {
@@ -69,17 +74,13 @@ export default function ElevatorCanvas({
       let vis = elevsRef.current.get(elev.id);
       if (!vis) {
         vis = {
-          y: targetY,
-          targetY,
+          y: targetY, targetY,
           prevPaxCount: elev.passengers.length,
-          exitFlashY: 0,
-          exitFlashCount: 0,
-          exitFlashAlpha: 0,
+          exitFlashY: 0, exitFlashCount: 0, exitFlashAlpha: 0,
         };
         elevsRef.current.set(elev.id, vis);
       } else {
         vis.targetY = targetY;
-        // Detect passenger exit
         if (elev.passengers.length < vis.prevPaxCount && elev.doors) {
           vis.exitFlashCount = vis.prevPaxCount - elev.passengers.length;
           vis.exitFlashY = floorYSmooth(elev.floor) - 10;
@@ -90,39 +91,49 @@ export default function ElevatorCanvas({
     }
   }, [frame]);
 
-  // Continuous animation loop — runs independent of frame arrival
+  // Single stable animation loop — started once on mount
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-    const loop = () => {
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+    const loop = (now: number) => {
+      // Size canvas once (or on resize)
+      if (!sizedRef.current) {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        sizedRef.current = true;
+      }
 
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      ctx.scale(dpr, dpr);
+      // Delta time for frame-rate independent animation
+      const dt = lastTimeRef.current ? Math.min((now - lastTimeRef.current) / 1000, 0.1) : 0.016;
+      lastTimeRef.current = now;
 
-      // Chase targets
+      // Chase targets (exponential decay, frame-rate independent)
+      const factor = 1 - Math.exp(-CHASE_LERP * dt);
       for (const vis of elevsRef.current.values()) {
-        vis.y += (vis.targetY - vis.y) * CHASE_SPEED;
-        // Decay exit flash
+        vis.y += (vis.targetY - vis.y) * factor;
         if (vis.exitFlashAlpha > 0) {
-          vis.exitFlashAlpha -= 0.02;
-          vis.exitFlashY -= 0.3;
+          vis.exitFlashAlpha -= 1.5 * dt;
+          vis.exitFlashY -= 30 * dt;
         }
       }
 
-      drawScene(ctx, frame, elevsRef.current, width, height);
+      // Clear and draw (no resize!)
+      ctx.clearRect(0, 0, width, height);
+      drawScene(ctx, frameRef.current, elevsRef.current, width, height);
+
       animRef.current = requestAnimationFrame(loop);
     };
 
     animRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animRef.current);
-  }, [frame, width, height]);
+  }, [width, height]); // only restart on dimension change
 
   return (
     <canvas
@@ -228,19 +239,20 @@ function drawScene(
       ctx.globalAlpha = 1;
     }
 
-    // Label
+    // Label + arrow
     ctx.fillStyle = COLORS.text;
     ctx.font = "10px monospace";
     ctx.textAlign = "center";
-    ctx.fillText(`E${elev.id}`, shaftX(elev.id) + SHAFT_WIDTH / 2, y - 5);
-    if (elev.direction === "up") ctx.fillText("\u25b2", shaftX(elev.id) + SHAFT_WIDTH / 2, y - 15);
-    else if (elev.direction === "down") ctx.fillText("\u25bc", shaftX(elev.id) + SHAFT_WIDTH / 2, y - 15);
+    const cx = shaftX(elev.id) + SHAFT_WIDTH / 2;
+    ctx.fillText(`E${elev.id}`, cx, y - 5);
+    if (elev.direction === "up") ctx.fillText("\u25b2", cx, y - 15);
+    else if (elev.direction === "down") ctx.fillText("\u25bc", cx, y - 15);
 
     // Phase label
     if (elev.phase !== "idle") {
       ctx.fillStyle = COLORS.phaseText;
       ctx.font = "8px monospace";
-      ctx.fillText(elev.phase, shaftX(elev.id) + SHAFT_WIDTH / 2, y + CABIN_SIZE + 12);
+      ctx.fillText(elev.phase, cx, y + CABIN_SIZE + 12);
     }
   }
 

@@ -20,7 +20,7 @@ def _env(key: str, default: int | float) -> int | float:
 ACCEL_TICKS: int = int(_env("ACCEL_TICKS", 3))
 
 # Cruising: each floor at full speed
-CRUISE_TICKS: int = int(_env("CRUISE_TICKS", 1))
+CRUISE_TICKS: int = int(_env("CRUISE_TICKS", 2))
 
 # Deceleration: last floor before stopping
 DECEL_TICKS: int = int(_env("DECEL_TICKS", 2))
