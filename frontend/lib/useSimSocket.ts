@@ -3,8 +3,12 @@
 import { useState, useCallback, useRef } from "react";
 import type { StateFrame, Summary, RunRequest, RunResponse } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const WS_BASE = API_BASE.replace(/^http/, "ws");
+// In production behind a reverse proxy: use relative URLs (same origin).
+// In dev: fall back to localhost:8000.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const WS_BASE = API_BASE
+  ? API_BASE.replace(/^http/, "ws")
+  : `${typeof window !== "undefined" ? (window.location.protocol === "https:" ? "wss:" : "ws:") : "ws:"}//${typeof window !== "undefined" ? window.location.host : "localhost:8000"}`;
 
 export function useSimSocket() {
   const [frames, setFrames] = useState<StateFrame[]>([]);
