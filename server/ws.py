@@ -154,10 +154,21 @@ async def ws_playback(ws: WebSocket, run_id: str) -> None:
     selected = run["selected"]
     history = run["histories"][selected]
 
+    # Wait for client to send speed (ms per tick), default 500ms
+    tick_delay = 0.5
+    try:
+        init_msg = await asyncio.wait_for(ws.receive_text(), timeout=2.0)
+        import json
+        parsed = json.loads(init_msg)
+        if "speed" in parsed:
+            tick_delay = max(0.03, parsed["speed"] / 1000)
+    except (asyncio.TimeoutError, Exception):
+        pass
+
     try:
         for frame in history:
             await ws.send_json(frame)
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(tick_delay)
 
         # Send summary after last frame
         await ws.send_json({

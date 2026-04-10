@@ -16,6 +16,14 @@ class DoorState(Enum):
     CLOSED = "closed"
 
 
+class MovePhase(Enum):
+    IDLE = "idle"
+    ACCELERATING = "accelerating"
+    CRUISING = "cruising"
+    DECELERATING = "decelerating"
+    BOARDING = "boarding"
+
+
 @dataclass
 class Passenger:
     id: int
@@ -59,6 +67,10 @@ class Elevator:
     passengers: list[Passenger] = field(default_factory=list)
     capacity: int = 8
     target_floor: Optional[int] = None
+    phase: MovePhase = MovePhase.IDLE
+    phase_ticks_left: int = 0
+    phase_ticks_total: int = 0  # total ticks for current phase (for progress calc)
+    floors_to_target: int = 0
 
     @property
     def is_full(self) -> bool:

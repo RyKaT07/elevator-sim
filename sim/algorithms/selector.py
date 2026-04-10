@@ -57,8 +57,12 @@ def select_best(
         sim.run()
 
         m = sim.get_results()
+        delivered = len([p for p in passengers if p.dropoff_tick is not None])
         results[algo_name] = m
+        # Penalize algorithms that didn't deliver everyone
         score = getattr(m, key)
+        if delivered < len(passengers):
+            score = float("inf")
         if score < best_score:
             best_score = score
             best_algo = algo_name

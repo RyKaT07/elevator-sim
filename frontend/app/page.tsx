@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useSimSocket } from "@/lib/useSimSocket";
 import ElevatorCanvas from "@/components/ElevatorCanvas";
 import ConfigPanel from "@/components/ConfigPanel";
@@ -7,7 +8,13 @@ import ResultsTable from "@/components/ResultsTable";
 import MetricsBar from "@/components/MetricsBar";
 
 export default function Home() {
-  const { currentFrame, summary, isRunning, error, run, stop } = useSimSocket();
+  const { currentFrame, prevFrame, summary, isRunning, error, run, stop, setSpeed } = useSimSocket();
+  const [speed, setSpeedState] = useState(500);
+
+  const handleSpeedChange = (ms: number) => {
+    setSpeedState(ms);
+    setSpeed(ms);
+  };
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
@@ -25,15 +32,19 @@ export default function Home() {
       )}
 
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* Left: Canvas + Metrics */}
         <div className="flex flex-col gap-4">
-          <ElevatorCanvas frame={currentFrame} />
+          <ElevatorCanvas frame={currentFrame} prevFrame={prevFrame} speed={speed} />
           <MetricsBar frame={currentFrame} />
         </div>
 
-        {/* Right: Config + Results */}
         <div className="flex flex-col gap-4 w-full lg:w-80">
-          <ConfigPanel onRun={run} isRunning={isRunning} onStop={stop} />
+          <ConfigPanel
+            onRun={run}
+            isRunning={isRunning}
+            onStop={stop}
+            speed={speed}
+            onSpeedChange={handleSpeedChange}
+          />
           <ResultsTable summary={summary} />
         </div>
       </div>

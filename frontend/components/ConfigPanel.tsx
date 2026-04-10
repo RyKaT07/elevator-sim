@@ -28,9 +28,19 @@ interface Props {
   onRun: (req: RunRequest) => void;
   isRunning: boolean;
   onStop: () => void;
+  speed: number;
+  onSpeedChange: (speed: number) => void;
 }
 
-export default function ConfigPanel({ onRun, isRunning, onStop }: Props) {
+const SPEEDS = [
+  { value: 2000, label: "0.25x" },
+  { value: 1000, label: "0.5x" },
+  { value: 500,  label: "1x" },
+  { value: 150,  label: "2x" },
+  { value: 50,   label: "5x" },
+];
+
+export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedChange }: Props) {
   const [scenario, setScenario] = useState("apartment_morning");
   const [metric, setMetric] = useState<"wait_time" | "total_time" | "energy">("wait_time");
   const [algorithm, setAlgorithm] = useState("");
@@ -135,6 +145,26 @@ export default function ConfigPanel({ onRun, isRunning, onStop }: Props) {
             <option key={a.value} value={a.value}>{a.label}</option>
           ))}
         </select>
+      </label>
+
+      {/* Speed */}
+      <label className="flex flex-col gap-1">
+        <span className="text-sm text-slate-400">Playback Speed</span>
+        <div className="flex gap-1">
+          {SPEEDS.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => onSpeedChange(s.value)}
+              className={`flex-1 py-1 px-2 rounded text-xs font-mono transition-colors ${
+                speed === s.value
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
       </label>
 
       {/* Run / Stop */}

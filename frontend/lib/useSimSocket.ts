@@ -3,9 +3,10 @@
 import { useState, useCallback, useRef } from "react";
 import type { StateFrame, Summary, RunRequest, RunResponse } from "./types";
 
-// In production behind a reverse proxy: use relative URLs (same origin).
-// In dev: fall back to localhost:8000.
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+// Production behind reverse proxy: same-origin (empty string).
+// Dev: explicit localhost:8000 because frontend runs on :3000.
+const DEV_API = "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : DEV_API);
 const WS_BASE = API_BASE
   ? API_BASE.replace(/^http/, "ws")
   : `${typeof window !== "undefined" ? (window.location.protocol === "https:" ? "wss:" : "ws:") : "ws:"}//${typeof window !== "undefined" ? window.location.host : "localhost:8000"}`;
@@ -13,16 +14,24 @@ const WS_BASE = API_BASE
 export function useSimSocket() {
   const [frames, setFrames] = useState<StateFrame[]>([]);
   const [currentFrame, setCurrentFrame] = useState<StateFrame | null>(null);
+  const [prevFrame, setPrevFrame] = useState<StateFrame | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const speedRef = useRef(500);
+
+  const setSpeed = useCallback((ms: number) => {
+    speedRef.current = ms;
+  }, []);
 
   const run = useCallback(async (req: RunRequest) => {
     setError(null);
     setSummary(null);
     setFrames([]);
     setCurrentFrame(null);
+    setPrevFrame(null);
     setIsRunning(true);
 
     try {
@@ -42,6 +51,10 @@ export function useSimSocket() {
       const ws = new WebSocket(`${WS_BASE}/ws/${data.run_id}`);
       wsRef.current = ws;
 
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ speed: speedRef.current }));
+      };
+
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
 
@@ -52,7 +65,10 @@ export function useSimSocket() {
         }
 
         const frame = msg as StateFrame;
-        setCurrentFrame(frame);
+        setCurrentFrame((prev) => {
+          setPrevFrame(prev);
+          return frame;
+        });
         setFrames((prev) => [...prev, frame]);
       };
 
@@ -75,5 +91,5 @@ export function useSimSocket() {
     setIsRunning(false);
   }, []);
 
-  return { frames, currentFrame, summary, isRunning, error, run, stop };
+  return { frames, currentFrame, prevFrame, summary, isRunning, error, run, stop, setSpeed };
 }

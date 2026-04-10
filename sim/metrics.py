@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from sim.models import Passenger
+from sim import config as cfg
 
 
 @dataclass
@@ -19,25 +20,35 @@ class Metrics:
         }
 
 
-# Energy cost per floor traveled (arbitrary units).
-# Going up costs more than going down.
-ENERGY_UP_PER_FLOOR = 1.5
-ENERGY_DOWN_PER_FLOOR = 0.8
-
-
 class MetricsCollector:
-    """Accumulates metrics across the simulation."""
+    """Accumulates energy metrics with phase-aware costs."""
 
     def __init__(self) -> None:
         self._total_energy: float = 0.0
-        self._elevator_prev_floors: dict[int, int] = {}
 
-    def record_elevator_move(self, elevator_id: int, from_floor: int, to_floor: int) -> None:
+    def record_elevator_move(
+        self,
+        elevator_id: int,
+        from_floor: int,
+        to_floor: int,
+        is_accel: bool = False,
+        is_decel: bool = False,
+    ) -> None:
         diff = to_floor - from_floor
-        if diff > 0:
-            self._total_energy += abs(diff) * ENERGY_UP_PER_FLOOR
-        elif diff < 0:
-            self._total_energy += abs(diff) * ENERGY_DOWN_PER_FLOOR
+        if diff == 0:
+            return
+
+        base = cfg.ENERGY_UP_CRUISE if diff > 0 else cfg.ENERGY_DOWN_CRUISE
+
+        if is_accel:
+            self._total_energy += abs(diff) * base * cfg.ENERGY_ACCEL_MULT
+        elif is_decel:
+            self._total_energy += abs(diff) * base * cfg.ENERGY_DECEL_MULT
+        else:
+            self._total_energy += abs(diff) * base
+
+    def record_elevator_stop(self, elevator_id: int) -> None:
+        pass  # no-op, tracking happens via move phases
 
     def compute(self, passengers: list[Passenger]) -> Metrics:
         delivered = [p for p in passengers if p.dropoff_tick is not None]
