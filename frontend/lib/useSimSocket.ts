@@ -12,14 +12,14 @@ export function useSimSocket() {
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(500);
 
-  // Frames stored ONLY in ref — no React state, no re-renders during playback
+  const [playbackToken, setPlaybackToken] = useState(0); // increments to trigger canvas start
   const allFramesRef = useRef<StateFrame[]>([]);
 
   const run = useCallback(async (req: RunRequest) => {
     setError(null);
     setSummary(null);
-    setIsRunning(true);
     allFramesRef.current = [];
+    setIsRunning(false);
 
     try {
       const res = await fetch(`${API_BASE}/run`, {
@@ -35,9 +35,8 @@ export function useSimSocket() {
       const result = await framesRes.json();
 
       allFramesRef.current = result.frames;
-      // Canvas component will handle playback — no React state during animation
-      // Summary shown after canvas signals completion
-      setSummary(null); // clear, canvas will call onComplete
+      setPlaybackToken(t => t + 1); // triggers canvas useEffect
+      setIsRunning(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
       setIsRunning(false);
@@ -56,6 +55,7 @@ export function useSimSocket() {
 
   return {
     allFramesRef,
+    playbackToken,
     summary,
     isRunning,
     error,

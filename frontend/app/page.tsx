@@ -6,7 +6,7 @@ import ConfigPanel from "@/components/ConfigPanel";
 import ResultsTable from "@/components/ResultsTable";
 
 export default function Home() {
-  const { allFramesRef, summary, isRunning, error, run, stop, speed, setSpeed, onPlaybackComplete } = useSimSocket();
+  const { allFramesRef, playbackToken, summary, isRunning, error, run, stop, speed, setSpeed, onPlaybackComplete } = useSimSocket();
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
@@ -27,6 +27,7 @@ export default function Home() {
         <div className="flex flex-col gap-4">
           <ElevatorCanvas
             allFramesRef={allFramesRef}
+            playbackToken={playbackToken}
             isRunning={isRunning}
             speed={speed}
             onComplete={onPlaybackComplete}

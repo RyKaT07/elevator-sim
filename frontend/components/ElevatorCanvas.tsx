@@ -5,6 +5,7 @@ import type { StateFrame, Summary } from "@/lib/types";
 
 interface Props {
   allFramesRef: MutableRefObject<StateFrame[]>;
+  playbackToken: number;
   isRunning: boolean;
   speed: number;
   width?: number;
@@ -56,6 +57,7 @@ function visualFloor(elev: { floor: number; direction: string; progress: number 
 
 export default function ElevatorCanvas({
   allFramesRef,
+  playbackToken,
   isRunning,
   speed,
   width = 500,
@@ -75,16 +77,21 @@ export default function ElevatorCanvas({
   speedRef.current = speed;
   onCompleteRef.current = onComplete;
 
-  // Start/stop playback when isRunning changes
+  // Start playback when token changes (frames loaded)
   useEffect(() => {
-    if (isRunning && allFramesRef.current.length > 0) {
+    if (playbackToken > 0 && allFramesRef.current.length > 0) {
       idxRef.current = 0;
       lastTickRef.current = 0;
       runningRef.current = true;
-    } else if (!isRunning) {
+    }
+  }, [playbackToken, allFramesRef]);
+
+  // Stop playback
+  useEffect(() => {
+    if (!isRunning) {
       runningRef.current = false;
     }
-  }, [isRunning, allFramesRef]);
+  }, [isRunning]);
 
   // Single animation loop — never restarts
   useEffect(() => {
