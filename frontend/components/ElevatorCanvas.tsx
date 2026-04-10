@@ -75,32 +75,39 @@ export default function ElevatorCanvas({
   nextFrameRef.current = nextFrame;
   speedRef.current = speed;
 
-  // Single stable animation loop
+  // Single stable animation loop with double buffering
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // Offscreen buffer — draw here, then copy in one operation
+    const dpr = window.devicePixelRatio || 1;
+    const buffer = document.createElement("canvas");
+    buffer.width = width * dpr;
+    buffer.height = height * dpr;
+    const bctx = buffer.getContext("2d")!;
+    bctx.scale(dpr, dpr);
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
     const loop = () => {
-      if (!sizedRef.current) {
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${height}px`;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        sizedRef.current = true;
-      }
-
-      ctx.clearRect(0, 0, width, height);
-
       const cur = frameRef.current;
       const nxt = nextFrameRef.current;
       const now = performance.now();
       const t = Math.min((now - frameArrivalRef.current) / speedRef.current, 1);
 
-      drawScene(ctx, cur, nxt, t, width, height);
+      // Draw to offscreen buffer
+      drawScene(bctx, cur, nxt, t, width, height);
+
+      // Copy to visible canvas in one operation (no flicker)
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(buffer, 0, 0);
+
       animRef.current = requestAnimationFrame(loop);
     };
 
