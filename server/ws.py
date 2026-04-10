@@ -12,6 +12,7 @@ from sim.models import Building, Passenger
 from sim.simulation import Simulation
 from sim.algorithms.base import Algorithm
 from sim.algorithms.fcfs import FCFSAlgorithm
+from sim.scenarios import SCENARIOS
 
 app = FastAPI(title="Elevator Simulator")
 
@@ -58,10 +59,11 @@ class PassengerInput(BaseModel):
 
 
 class RunRequest(BaseModel):
-    passengers: list[PassengerInput]
+    passengers: list[PassengerInput] = []
     scenario: str = "custom"
     metric: str = "wait_time"
     algorithm: str | None = None
+    passenger_count: int = 14
 
 
 class RunResponse(BaseModel):
@@ -76,6 +78,14 @@ class RunResponse(BaseModel):
 async def run_simulation(req: RunRequest) -> RunResponse:
     run_id = uuid.uuid4().hex[:12]
 
+    # Resolve passengers: from scenario or from explicit list
+    if req.passengers:
+        passenger_specs = [{"floor": p.floor, "destination": p.destination} for p in req.passengers]
+    elif req.scenario in SCENARIOS:
+        passenger_specs = SCENARIOS[req.scenario](count=req.passenger_count)
+    else:
+        passenger_specs = SCENARIOS["apartment_morning"](count=req.passenger_count)
+
     algos_to_run: list[str] = (
         [req.algorithm] if req.algorithm and req.algorithm in ALGORITHMS
         else list(ALGORITHMS.keys())
@@ -89,8 +99,8 @@ async def run_simulation(req: RunRequest) -> RunResponse:
     for algo_name in algos_to_run:
         building = Building()
         passengers = [
-            Passenger(id=i, origin=p.floor, destination=p.destination)
-            for i, p in enumerate(req.passengers)
+            Passenger(id=i, origin=p["floor"], destination=p["destination"])
+            for i, p in enumerate(passenger_specs)
         ]
         algo = ALGORITHMS[algo_name]()
         sim = Simulation(building, passengers, algo, scenario=req.scenario)
