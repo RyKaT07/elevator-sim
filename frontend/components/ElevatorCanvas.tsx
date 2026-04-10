@@ -4,11 +4,11 @@ import { useRef, useEffect } from "react";
 import type { StateFrame } from "@/lib/types";
 
 interface Props {
-  frame: StateFrame | null;   // current tick (passengers from here)
-  nextFrame: StateFrame | null; // next tick (position target)
+  frame: StateFrame | null;
+  nextFrame: StateFrame | null;
   width?: number;
   height?: number;
-  speed?: number; // ms per tick
+  speed?: number;
 }
 
 const NUM_FLOORS = 7;
@@ -50,7 +50,7 @@ function visualFloor(elev: { floor: number; direction: string; progress: number 
   return elev.floor + elev.progress * dir;
 }
 
-export default function ElevatorCanvas({
+function ElevatorCanvasInner({
   frame,
   nextFrame,
   width = 500,
@@ -122,6 +122,8 @@ export default function ElevatorCanvas({
     />
   );
 }
+
+export default ElevatorCanvasInner;
 
 function drawScene(
   ctx: CanvasRenderingContext2D,

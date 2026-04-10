@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useSimSocket } from "@/lib/useSimSocket";
 import ElevatorCanvas from "@/components/ElevatorCanvas";
 import ConfigPanel from "@/components/ConfigPanel";
