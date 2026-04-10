@@ -3,36 +3,41 @@
 import { useState, useCallback, useRef } from "react";
 import type { StateFrame, Summary, RunRequest, RunResponse } from "./types";
 
-// Production behind reverse proxy: same-origin (empty string).
-// Dev: explicit localhost:8000 because frontend runs on :3000.
 const DEV_API = "http://localhost:8000";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : DEV_API);
-const WS_BASE = API_BASE
-  ? API_BASE.replace(/^http/, "ws")
-  : `${typeof window !== "undefined" ? (window.location.protocol === "https:" ? "wss:" : "ws:") : "ws:"}//${typeof window !== "undefined" ? window.location.host : "localhost:8000"}`;
 
 export function useSimSocket() {
-  const [frames, setFrames] = useState<StateFrame[]>([]);
-  const [currentFrame, setCurrentFrame] = useState<StateFrame | null>(null);
-  const [prevFrame, setPrevFrame] = useState<StateFrame | null>(null);
+  const [frameIndex, setFrameIndex] = useState(-1);
+  const [allFrames, setAllFrames] = useState<StateFrame[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const [speed, setSpeed] = useState(500);
 
-  const speedRef = useRef(500);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const idxRef = useRef(0);
+  const framesRef = useRef<StateFrame[]>([]);
+  const summaryRef = useRef<Summary | null>(null);
 
-  const setSpeed = useCallback((ms: number) => {
-    speedRef.current = ms;
+  const stopPlayback = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsRunning(false);
+    if (summaryRef.current) setSummary(summaryRef.current);
   }, []);
 
   const run = useCallback(async (req: RunRequest) => {
+    // Reset
+    stopPlayback();
     setError(null);
     setSummary(null);
-    setFrames([]);
-    setCurrentFrame(null);
-    setPrevFrame(null);
+    setAllFrames([]);
+    setFrameIndex(-1);
     setIsRunning(true);
+    idxRef.current = 0;
+    summaryRef.current = null;
 
     try {
       const res = await fetch(`${API_BASE}/run`, {
@@ -40,56 +45,52 @@ export function useSimSocket() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req),
       });
-
-      if (!res.ok) {
-        throw new Error(`Server error: ${res.status}`);
-      }
-
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data: RunResponse = await res.json();
 
-      // Connect WebSocket for playback
-      const ws = new WebSocket(`${WS_BASE}/ws/${data.run_id}`);
-      wsRef.current = ws;
+      const framesRes = await fetch(`${API_BASE}/frames/${data.run_id}`);
+      if (!framesRes.ok) throw new Error(`Failed to fetch frames`);
+      const result = await framesRes.json();
 
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ speed: speedRef.current }));
-      };
+      const frames: StateFrame[] = result.frames;
+      const sum: Summary = result.summary;
 
-      ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      framesRef.current = frames;
+      summaryRef.current = sum;
+      setAllFrames(frames);
+      setFrameIndex(0);
 
-        if (msg.status === "finished" && msg.results) {
-          setSummary(msg as Summary);
+      // Simple interval-based playback
+      intervalRef.current = setInterval(() => {
+        idxRef.current++;
+        if (idxRef.current >= framesRef.current.length) {
+          clearInterval(intervalRef.current!);
+          intervalRef.current = null;
           setIsRunning(false);
+          setSummary(summaryRef.current);
           return;
         }
+        setFrameIndex(idxRef.current);
+      }, speed);
 
-        const frame = msg as StateFrame;
-        setCurrentFrame((prev) => {
-          setPrevFrame(prev);
-          return frame;
-        });
-        setFrames((prev) => [...prev, frame]);
-      };
-
-      ws.onerror = () => {
-        setError("WebSocket connection error");
-        setIsRunning(false);
-      };
-
-      ws.onclose = () => {
-        setIsRunning(false);
-      };
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
       setIsRunning(false);
     }
-  }, []);
+  }, [speed, stopPlayback]);
 
-  const stop = useCallback(() => {
-    wsRef.current?.close();
-    setIsRunning(false);
-  }, []);
+  const currentFrame = frameIndex >= 0 && frameIndex < allFrames.length ? allFrames[frameIndex] : null;
+  const nextFrame = frameIndex >= 0 && frameIndex + 1 < allFrames.length ? allFrames[frameIndex + 1] : null;
 
-  return { frames, currentFrame, prevFrame, summary, isRunning, error, run, stop, setSpeed };
+  return {
+    currentFrame,
+    nextFrame,
+    summary,
+    isRunning,
+    error,
+    run,
+    stop: stopPlayback,
+    speed,
+    setSpeed,
+  };
 }

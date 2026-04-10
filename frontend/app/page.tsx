@@ -8,11 +8,8 @@ import ResultsTable from "@/components/ResultsTable";
 import MetricsBar from "@/components/MetricsBar";
 
 export default function Home() {
-  const { currentFrame, prevFrame, summary, isRunning, error, run, stop, setSpeed } = useSimSocket();
-  const [speed, setSpeedState] = useState(500);
-
+  const { currentFrame, nextFrame, summary, isRunning, error, run, stop, speed, setSpeed } = useSimSocket();
   const handleSpeedChange = (ms: number) => {
-    setSpeedState(ms);
     setSpeed(ms);
   };
 
@@ -33,7 +30,7 @@ export default function Home() {
 
       <div className="flex flex-col lg:flex-row gap-6">
         <div className="flex flex-col gap-4">
-          <ElevatorCanvas frame={currentFrame} prevFrame={prevFrame} speed={speed} />
+          <ElevatorCanvas frame={currentFrame} nextFrame={nextFrame} speed={speed} />
           <MetricsBar frame={currentFrame} />
         </div>
 

@@ -200,6 +200,26 @@ async def get_results(run_id: str) -> dict:
     }
 
 
+# ── GET /frames/{run_id} — all frames at once for client-side playback
+
+@app.get("/frames/{run_id}")
+async def get_frames(run_id: str) -> dict:
+    run = _runs.get(run_id)
+    if run is None:
+        return {"error": "run not found"}
+    selected = run["selected"]
+    return {
+        "frames": run["histories"][selected],
+        "summary": {
+            "results": [
+                {"algorithm": algo, "metrics": metrics}
+                for algo, metrics in run["results"].items()
+            ],
+            "selected": selected,
+        },
+    }
+
+
 # ── Healthcheck ──────────────────────────────────────────────────────
 
 @app.get("/health")
