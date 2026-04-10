@@ -4,13 +4,9 @@ import { useSimSocket } from "@/lib/useSimSocket";
 import ElevatorCanvas from "@/components/ElevatorCanvas";
 import ConfigPanel from "@/components/ConfigPanel";
 import ResultsTable from "@/components/ResultsTable";
-import MetricsBar from "@/components/MetricsBar";
 
 export default function Home() {
-  const { currentFrame, nextFrame, summary, isRunning, error, run, stop, speed, setSpeed } = useSimSocket();
-  const handleSpeedChange = (ms: number) => {
-    setSpeed(ms);
-  };
+  const { allFramesRef, summary, isRunning, error, run, stop, speed, setSpeed, onPlaybackComplete } = useSimSocket();
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
@@ -29,8 +25,12 @@ export default function Home() {
 
       <div className="flex flex-col lg:flex-row gap-6">
         <div className="flex flex-col gap-4">
-          <ElevatorCanvas frame={currentFrame} nextFrame={nextFrame} speed={speed} />
-          <MetricsBar frame={currentFrame} />
+          <ElevatorCanvas
+            allFramesRef={allFramesRef}
+            isRunning={isRunning}
+            speed={speed}
+            onComplete={onPlaybackComplete}
+          />
         </div>
 
         <div className="flex flex-col gap-4 w-full lg:w-80">
@@ -39,7 +39,7 @@ export default function Home() {
             isRunning={isRunning}
             onStop={stop}
             speed={speed}
-            onSpeedChange={handleSpeedChange}
+            onSpeedChange={setSpeed}
           />
           <ResultsTable summary={summary} />
         </div>
