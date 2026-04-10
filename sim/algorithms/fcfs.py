@@ -71,10 +71,11 @@ class FCFSAlgorithm(Algorithm):
                 continue
 
             # Skip passengers on floors already being served —
-            # the elevator going there will pick up everyone anyway
+            # don't remove from queue, they'll be reassigned next cycle
+            # if the elevator was full and couldn't take them
             if passenger.origin in floors_being_served:
                 self._queue.pop(0)
-                self._assigned.add(pid)  # mark as handled
+                # DON'T mark as assigned — they may still be waiting
                 continue
 
             nearest = min(
