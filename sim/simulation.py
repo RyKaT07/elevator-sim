@@ -216,10 +216,23 @@ class Simulation:
             elev.passengers.remove(p)
             self._delivered.append(p)
 
-        # Board — anyone waiting can enter (up to capacity)
+        # Board — destination dispatch: group by similar destinations.
+        # Passengers going to nearby floors board together so the
+        # elevator makes fewer stops. If elevator already has passengers,
+        # prefer those going in the same direction.
         floor = self.building.get_floor(elev.floor)
+        candidates = list(floor.waiting)
+
+        if elev.passengers:
+            # Sort by proximity to existing passengers' destinations
+            avg_dest = sum(p.destination for p in elev.passengers) / len(elev.passengers)
+            candidates.sort(key=lambda p: abs(p.destination - avg_dest))
+        else:
+            # Sort by destination so nearby destinations cluster together
+            candidates.sort(key=lambda p: p.destination)
+
         boarding = []
-        for p in floor.waiting:
+        for p in candidates:
             if len(elev.passengers) + len(boarding) >= elev.capacity:
                 break
             boarding.append(p)

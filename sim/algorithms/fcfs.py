@@ -51,12 +51,12 @@ class FCFSAlgorithm(Algorithm):
             if e.id not in self._pickup_assignments and e.is_empty
         ]
 
-        # Track floors already being served by assigned elevators
-        floors_being_served: set[int] = set()
+        # Track floors being served and how many passengers wait there
+        floors_served_by: dict[int, int] = {}  # floor -> count of elevators heading there
         for eid, pid in self._pickup_assignments.items():
             p = self._find_passenger(building, pid)
             if p is not None:
-                floors_being_served.add(p.origin)
+                floors_served_by[p.origin] = floors_served_by.get(p.origin, 0) + 1
 
         while self._queue and idle_elevators:
             pid = self._queue[0]
@@ -70,12 +70,14 @@ class FCFSAlgorithm(Algorithm):
                 self._queue.pop(0)
                 continue
 
-            # Skip passengers on floors already being served —
-            # don't remove from queue, they'll be reassigned next cycle
-            # if the elevator was full and couldn't take them
-            if passenger.origin in floors_being_served:
+            # Skip floor if enough elevators already heading there
+            # (1 elevator per 8 waiting passengers)
+            floor_obj = building.get_floor(passenger.origin)
+            waiting_count = len(floor_obj.waiting)
+            elevators_needed = max(1, (waiting_count + 7) // 8)  # ceil division
+            elevators_assigned = floors_served_by.get(passenger.origin, 0)
+            if elevators_assigned >= elevators_needed:
                 self._queue.pop(0)
-                # DON'T mark as assigned — they may still be waiting
                 continue
 
             nearest = min(
@@ -84,7 +86,7 @@ class FCFSAlgorithm(Algorithm):
             )
             self._pickup_assignments[nearest.id] = pid
             self._assigned.add(pid)
-            floors_being_served.add(passenger.origin)
+            floors_served_by[passenger.origin] = elevators_assigned + 1
             idle_elevators.remove(nearest)
             self._queue.pop(0)
 
