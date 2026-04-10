@@ -123,3 +123,6 @@ class ElevatorAction:
     elevator_id: int
     target_floor: Optional[int] = None
     open_doors: bool = False
+    # If set, only these passenger IDs may board (for coordination).
+    # If None, anyone waiting on the floor can board.
+    board_ids: Optional[set[int]] = None

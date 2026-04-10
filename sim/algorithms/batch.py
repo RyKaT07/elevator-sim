@@ -136,7 +136,10 @@ class BatchAlgorithm(Algorithm):
                 p = self._find_passenger(building, pid)
                 if p is not None:
                     if elev.floor == p.origin:
-                        return ElevatorAction(elev.id, p.origin, open_doors=True)
+                        return ElevatorAction(
+                            elev.id, p.origin, open_doors=True,
+                            board_ids=set(pids),
+                        )
                     return ElevatorAction(elev.id, p.origin)
 
         return ElevatorAction(elev.id)

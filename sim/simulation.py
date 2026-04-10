@@ -65,6 +65,7 @@ class Simulation:
         self.history: list[StateFrame] = []
         self.metrics_collector = MetricsCollector()
         self._delivered: list[Passenger] = []
+        self._pending_board_ids: dict[int, set[int] | None] = {}  # elevator_id -> allowed IDs
 
         for p in self.passengers:
             p.spawn_tick = 0
@@ -102,7 +103,7 @@ class Simulation:
                 continue
 
             if action.open_doors and elev.floor == action.target_floor:
-                self._start_boarding(elev)
+                self._start_boarding(elev, action.board_ids)
             elif action.target_floor is not None and action.target_floor != elev.floor:
                 self._start_move(elev, action.target_floor)
 
@@ -200,15 +201,18 @@ class Simulation:
 
     # ── Boarding (door sequence) ───────────────────────────────────
 
-    def _start_boarding(self, elev: Elevator) -> None:
+    def _start_boarding(self, elev: Elevator, board_ids: set[int] | None = None) -> None:
         """Begin door opening sequence: DOORS_OPENING → BOARDING → DOORS_CLOSING."""
         self.metrics_collector.record_elevator_stop(elev.id)
+        self._pending_board_ids[elev.id] = board_ids
         elev.phase = MovePhase.DOORS_OPENING
         elev.phase_ticks_left = cfg.DOORS_OPEN_TICKS
         elev.phase_ticks_total = cfg.DOORS_OPEN_TICKS
 
     def _transfer_passengers(self, elev: Elevator) -> int:
         """Move passengers in/out. Returns total count for boarding time calc."""
+        board_ids = self._pending_board_ids.pop(elev.id, None)
+
         # Exit
         exiting = [p for p in elev.passengers if p.destination == elev.floor]
         for p in exiting:
@@ -216,12 +220,14 @@ class Simulation:
             elev.passengers.remove(p)
             self._delivered.append(p)
 
-        # Board (respect capacity)
+        # Board (respect capacity + algorithm's board_ids filter)
         floor = self.building.get_floor(elev.floor)
         boarding = []
         for p in floor.waiting:
             if len(elev.passengers) + len(boarding) >= elev.capacity:
                 break
+            if board_ids is not None and p.id not in board_ids:
+                continue
             boarding.append(p)
         for p in boarding:
             p.pickup_tick = self.tick
