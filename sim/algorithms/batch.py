@@ -79,11 +79,23 @@ class BatchAlgorithm(Algorithm):
         for batch in batches:
             if not idle:
                 break
-            # Find nearest elevator to the batch origin
             avg_origin = sum(p.origin for p in batch) / len(batch)
             nearest = min(idle, key=lambda e: abs(e.floor - avg_origin))
-            self._assignments[nearest.id] = [p.id for p in batch]
+            # Limit to elevator capacity — remaining passengers stay unassigned
+            # and will be picked up in the next assignment cycle
+            cap = nearest.capacity
+            assigned_batch = batch[:cap]
+            self._assignments[nearest.id] = [p.id for p in assigned_batch]
             idle.remove(nearest)
+
+            # If batch overflow and more elevators idle, assign rest
+            overflow = batch[cap:]
+            while overflow and idle:
+                nxt = min(idle, key=lambda e: abs(e.floor - avg_origin))
+                chunk = overflow[:nxt.capacity]
+                self._assignments[nxt.id] = [p.id for p in chunk]
+                idle.remove(nxt)
+                overflow = overflow[nxt.capacity:]
 
     def _cluster(self, passengers: list[Passenger]) -> list[list[Passenger]]:
         """Group passengers going in the same direction with close destinations."""
