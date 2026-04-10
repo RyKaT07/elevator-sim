@@ -244,10 +244,19 @@ function draw(
       ctx.fillRect(x + CABIN_SIZE / 2 + gap, y, CABIN_SIZE / 2 - gap, CABIN_SIZE);
     }
 
+    // Passenger count / capacity
+    const paxCount = elev.passengers.length;
+    if (paxCount > 0) {
+      ctx.fillStyle = COLORS.text;
+      ctx.font = "bold 9px monospace";
+      ctx.textAlign = "right";
+      ctx.fillText(`${paxCount}/8`, x + CABIN_SIZE - 3, y + CABIN_SIZE - 4);
+    }
+
     // Passengers inside
-    for (let i = 0; i < elev.passengers.length; i++) {
+    for (let i = 0; i < paxCount; i++) {
       const px = x + 10 + (i % 4) * 14;
-      const py = y + 15 + Math.floor(i / 4) * 14;
+      const py = y + 12 + Math.floor(i / 4) * 14;
       ctx.fillStyle = COLORS.passengerInside;
       ctx.beginPath();
       ctx.arc(px, py, PASSENGER_RADIUS, 0, Math.PI * 2);

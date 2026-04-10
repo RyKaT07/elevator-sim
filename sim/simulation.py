@@ -216,11 +216,11 @@ class Simulation:
             elev.passengers.remove(p)
             self._delivered.append(p)
 
-        # Board
+        # Board (respect capacity)
         floor = self.building.get_floor(elev.floor)
         boarding = []
         for p in floor.waiting:
-            if elev.is_full:
+            if len(elev.passengers) + len(boarding) >= elev.capacity:
                 break
             boarding.append(p)
         for p in boarding:
