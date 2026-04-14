@@ -76,8 +76,8 @@ def test_sweep_office_morning():
 def test_selector_picks_best():
     spec = [{"floor": 0, "destination": f} for f in range(1, 7)]
     best, results = select_best(spec, metric="wait_time")
-    assert best in ("fcfs", "batch", "sweep")
-    assert len(results) == 3
+    assert best in ("fcfs", "batch", "sweep", "sequential")
+    assert len(results) == 4
     for m in results.values():
         assert m.avg_wait_time >= 0
 
@@ -89,4 +89,39 @@ def test_selector_all_metrics():
             [{"floor": p["floor"], "destination": p["destination"]} for p in spec],
             metric=metric,
         )
-        assert best in ("fcfs", "batch", "sweep")
+        assert best in ("fcfs", "batch", "sweep", "sequential")
+
+
+# ── Sequential algorithm ─────────────────────────────────────────────
+
+from sim.algorithms.sequential import SequentialAlgorithm
+
+
+def test_sequential_single_passenger():
+    sim, passengers = _run(SequentialAlgorithm, [{"floor": 0, "destination": 3}])
+    assert passengers[0].dropoff_tick is not None
+
+
+def test_sequential_bidirectional():
+    spec = [
+        {"floor": 0, "destination": 6},
+        {"floor": 6, "destination": 0},
+    ]
+    sim, passengers = _run(SequentialAlgorithm, spec, max_ticks=300)
+    for p in passengers:
+        assert p.dropoff_tick is not None
+
+
+def test_sequential_full_capacity():
+    """More passengers than elevator capacity — all should still be delivered."""
+    spec = [{"floor": 0, "destination": 6} for _ in range(12)]
+    sim, passengers = _run(SequentialAlgorithm, spec, max_ticks=500)
+    delivered = [p for p in passengers if p.dropoff_tick is not None]
+    assert len(delivered) == len(passengers)
+
+
+def test_sequential_apartment_morning():
+    spec = apartment_morning(count=8, seed=42)
+    sim, passengers = _run(SequentialAlgorithm, spec, max_ticks=400)
+    delivered = [p for p in passengers if p.dropoff_tick is not None]
+    assert len(delivered) == len(passengers)

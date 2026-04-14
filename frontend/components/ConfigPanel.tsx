@@ -22,6 +22,7 @@ const ALGORITHMS = [
   { value: "fcfs", label: "FCFS" },
   { value: "batch", label: "Batch" },
   { value: "sweep", label: "Sweep" },
+  { value: "sequential", label: "Sequential (no algorithm)" },
 ];
 
 interface Props {

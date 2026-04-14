@@ -7,12 +7,14 @@ from sim.algorithms.base import Algorithm
 from sim.algorithms.fcfs import FCFSAlgorithm
 from sim.algorithms.batch import BatchAlgorithm
 from sim.algorithms.sweep import SweepAlgorithm
+from sim.algorithms.sequential import SequentialAlgorithm
 
 
 ALL_ALGORITHMS: dict[str, type[Algorithm]] = {
     "fcfs": FCFSAlgorithm,
     "batch": BatchAlgorithm,
     "sweep": SweepAlgorithm,
+    "sequential": SequentialAlgorithm,
 }
 
 METRIC_KEY = {

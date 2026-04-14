@@ -42,6 +42,11 @@ def _register_optional_algorithms() -> None:
         ALGORITHMS["sweep"] = SweepAlgorithm
     except ImportError:
         pass
+    try:
+        from sim.algorithms.sequential import SequentialAlgorithm
+        ALGORITHMS["sequential"] = SequentialAlgorithm
+    except ImportError:
+        pass
 
 
 _register_optional_algorithms()
