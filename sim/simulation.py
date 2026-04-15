@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from copy import copy
 from dataclasses import dataclass
 
 from sim.models import (
@@ -9,10 +10,12 @@ from sim.models import (
     DoorState,
     Elevator,
     ElevatorAction,
+    Floor,
     MovePhase,
     Passenger,
 )
 from sim.algorithms.base import Algorithm
+from sim.cooperation import CooperationStrategy
 from sim.metrics import MetricsCollector, Metrics
 from sim import config as cfg
 
@@ -27,6 +30,7 @@ class StateFrame:
     active_algorithm: str
     scenario: str
     status: str
+    cooperation: str
 
     def to_dict(self) -> dict:
         return {
@@ -37,13 +41,14 @@ class StateFrame:
             "active_algorithm": self.active_algorithm,
             "scenario": self.scenario,
             "status": self.status,
+            "cooperation": self.cooperation,
         }
 
 
 class Simulation:
     """Tick-based elevator simulation with realistic physics.
 
-    Movement phases: ACCELERATING → CRUISING → DECELERATING → BOARDING
+    Movement phases: ACCELERATING -> CRUISING -> DECELERATING -> BOARDING
     Each phase takes a configurable number of ticks per floor.
     """
 
@@ -54,12 +59,14 @@ class Simulation:
         algorithm: Algorithm,
         scenario: str = "custom",
         max_ticks: int = 1000,
+        cooperation: CooperationStrategy | None = None,
     ) -> None:
         self.building = building
         self.passengers = passengers
         self.algorithm = algorithm
         self.scenario = scenario
         self.max_ticks = max_ticks
+        self.cooperation = cooperation
 
         self.tick = 0
         self.history: list[StateFrame] = []
@@ -69,6 +76,20 @@ class Simulation:
         for p in self.passengers:
             p.spawn_tick = 0
             self.building.get_floor(p.origin).waiting.append(p)
+
+        # Cooperation: compute passenger-to-elevator assignments
+        # and create per-elevator algorithm instances so each has
+        # independent internal state (queues, direction tracking, etc.)
+        self._passenger_zones: dict[int, set[int]] | None = None
+        self._zone_algorithms: dict[int, Algorithm] | None = None
+        if cooperation is not None:
+            raw = cooperation.assign(self.building, self.passengers)
+            self._passenger_zones = {
+                eid: {p.id for p in plist} for eid, plist in raw.items()
+            }
+            self._zone_algorithms = {
+                eid: type(algorithm)() for eid in range(building.num_elevators)
+            }
 
     def run(self) -> list[StateFrame]:
         self.history.append(self._snapshot("running"))
@@ -83,19 +104,19 @@ class Simulation:
 
     def _step(self) -> None:
         # 1. Tick down any active phases
-        busy_ids: set[int] = set()
         for elev in self.building.elevators:
             if elev.phase != MovePhase.IDLE:
-                busy_ids.add(elev.id)
                 elev.phase_ticks_left -= 1
                 if elev.phase_ticks_left <= 0:
                     self._complete_phase(elev)
 
-        # 2. Algorithm decides only for idle elevators
-        #    (but we still call decide() every tick so the algorithm
-        #    can observe the full state)
-        actions = self.algorithm.decide(self.building, self.tick)
+        # 2. Get actions from algorithm(s)
+        if self._zone_algorithms is not None and self._passenger_zones is not None:
+            actions = self._get_zone_actions()
+        else:
+            actions = self.algorithm.decide(self.building, self.tick)
 
+        # 3. Apply actions to idle elevators
         for action in actions:
             elev = self.building.get_elevator(action.elevator_id)
             if elev.phase != MovePhase.IDLE:
@@ -106,7 +127,40 @@ class Simulation:
             elif action.target_floor is not None and action.target_floor != elev.floor:
                 self._start_move(elev, action.target_floor)
 
-    # ── Movement state machine ──────────────────────────────────────
+    def _get_zone_actions(self) -> list[ElevatorAction]:
+        """Run per-elevator algorithm instances with filtered building views.
+
+        Each instance only sees waiting passengers assigned to its elevator,
+        so the algorithm makes zone-aware decisions without any code changes.
+        """
+        all_actions: list[ElevatorAction] = []
+
+        for elev in self.building.elevators:
+            algo = self._zone_algorithms[elev.id]
+            allowed = self._passenger_zones.get(elev.id, set())
+
+            # Create filtered building view: same elevators, filtered waiting
+            view = copy(self.building)
+            view.floors = [
+                Floor(
+                    number=f.number,
+                    waiting=[p for p in f.waiting if p.id in allowed],
+                )
+                for f in self.building.floors
+            ]
+            # Keep real elevator references
+            view.elevators = self.building.elevators
+
+            actions = algo.decide(view, self.tick)
+            # Take only the action for this elevator
+            for a in actions:
+                if a.elevator_id == elev.id:
+                    all_actions.append(a)
+                    break
+
+        return all_actions
+
+    # -- Movement state machine --
 
     def _start_move(self, elev: Elevator, target: int) -> None:
         elev.doors = DoorState.CLOSED
@@ -159,7 +213,6 @@ class Simulation:
             self._arrive(elev)
 
         elif elev.phase == MovePhase.DOORS_OPENING:
-            # Doors fully open — now transfer passengers
             elev.doors = DoorState.OPEN
             pax_count = self._transfer_passengers(elev)
             board_ticks = max(1, cfg.BOARD_BASE_TICKS + math.ceil(pax_count * cfg.BOARD_PER_PAX_TICKS))
@@ -168,7 +221,6 @@ class Simulation:
             elev.phase_ticks_total = board_ticks
 
         elif elev.phase == MovePhase.BOARDING:
-            # Boarding done — close doors
             elev.phase = MovePhase.DOORS_CLOSING
             elev.phase_ticks_left = cfg.DOORS_CLOSE_TICKS
             elev.phase_ticks_total = cfg.DOORS_CLOSE_TICKS
@@ -192,16 +244,14 @@ class Simulation:
             )
 
     def _arrive(self, elev: Elevator) -> None:
-        """Elevator arrived at target floor."""
         elev.phase = MovePhase.IDLE
         elev.target_floor = None
         elev.direction = Direction.IDLE
         self.metrics_collector.record_elevator_stop(elev.id)
 
-    # ── Boarding (door sequence) ───────────────────────────────────
+    # -- Boarding (door sequence) --
 
     def _start_boarding(self, elev: Elevator) -> None:
-        """Begin door opening sequence: DOORS_OPENING → BOARDING → DOORS_CLOSING."""
         self.metrics_collector.record_elevator_stop(elev.id)
         elev.phase = MovePhase.DOORS_OPENING
         elev.phase_ticks_left = cfg.DOORS_OPEN_TICKS
@@ -209,26 +259,26 @@ class Simulation:
 
     def _transfer_passengers(self, elev: Elevator) -> int:
         """Move passengers in/out. Returns total count for boarding time calc."""
-        # Exit
+        # Exit — always allowed regardless of cooperation
         exiting = [p for p in elev.passengers if p.destination == elev.floor]
         for p in exiting:
             p.dropoff_tick = self.tick
             elev.passengers.remove(p)
             self._delivered.append(p)
 
-        # Board — destination dispatch: group by similar destinations.
-        # Passengers going to nearby floors board together so the
-        # elevator makes fewer stops. If elevator already has passengers,
-        # prefer those going in the same direction.
+        # Board
         floor = self.building.get_floor(elev.floor)
         candidates = list(floor.waiting)
 
+        # Cooperation filter: only board passengers assigned to this elevator
+        if self._passenger_zones is not None:
+            allowed = self._passenger_zones.get(elev.id, set())
+            candidates = [p for p in candidates if p.id in allowed]
+
         if elev.passengers:
-            # Sort by proximity to existing passengers' destinations
             avg_dest = sum(p.destination for p in elev.passengers) / len(elev.passengers)
             candidates.sort(key=lambda p: abs(p.destination - avg_dest))
         else:
-            # Sort by destination so nearby destinations cluster together
             candidates.sort(key=lambda p: p.destination)
 
         boarding = []
@@ -243,26 +293,18 @@ class Simulation:
 
         return len(exiting) + len(boarding)
 
-    # ── Queries ─────────────────────────────────────────────────────
+    # -- Queries --
 
     @staticmethod
     def _elevator_progress(e: Elevator) -> float:
-        """How far between current floor and next floor (0.0 to 1.0).
-
-        Used by frontend for smooth interpolation. During movement phases,
-        progress ramps from 0→1 as phase_ticks count down. During idle/boarding,
-        progress is 0 (elevator is stationary at floor).
-        """
         if e.phase in (MovePhase.IDLE, MovePhase.BOARDING, MovePhase.DOORS_OPENING, MovePhase.DOORS_CLOSING):
             return 0.0
         if e.phase_ticks_total == 0:
             return 0.0
-        # progress = how much of the phase is done (0 = just started, 1 = done)
         return 1.0 - (e.phase_ticks_left / e.phase_ticks_total)
 
     @staticmethod
     def _door_progress(e: Elevator) -> float:
-        """0.0 = closed, 1.0 = fully open."""
         if e.phase == MovePhase.DOORS_OPENING and e.phase_ticks_total > 0:
             return 1.0 - (e.phase_ticks_left / e.phase_ticks_total)
         if e.phase == MovePhase.BOARDING:
@@ -279,6 +321,7 @@ class Simulation:
 
     def _snapshot(self, status: str) -> StateFrame:
         metrics = self.metrics_collector.compute(self.passengers)
+        coop_name = self.cooperation.name if self.cooperation else "none"
         return StateFrame(
             tick=self.tick,
             elevators=[
@@ -288,8 +331,6 @@ class Simulation:
                     "direction": e.direction.value,
                     "doors": e.doors == DoorState.OPEN,
                     "phase": e.phase.value,
-                    # progress: 0.0 = just started moving from floor,
-                    #           1.0 = about to arrive at next floor
                     "progress": self._elevator_progress(e),
                     "door_progress": self._door_progress(e),
                     "passengers": [
@@ -317,4 +358,5 @@ class Simulation:
             active_algorithm=self.algorithm.name,
             scenario=self.scenario,
             status=status,
+            cooperation=coop_name,
         )

@@ -71,7 +71,7 @@ class Elevator:
     target_floor: Optional[int] = None
     phase: MovePhase = MovePhase.IDLE
     phase_ticks_left: int = 0
-    phase_ticks_total: int = 0  # total ticks for current phase (for progress calc)
+    phase_ticks_total: int = 0
     floors_to_target: int = 0
 
     @property
@@ -100,6 +100,7 @@ class Floor:
 class Building:
     num_floors: int = 7
     num_elevators: int = 2
+    elevator_start_floors: list[int] | None = None
     floors: list[Floor] = field(default_factory=list)
     elevators: list[Elevator] = field(default_factory=list)
 
@@ -108,7 +109,15 @@ class Building:
         if not self.floors:
             self.floors = [Floor(number=i) for i in range(self.num_floors)]
         if not self.elevators:
-            self.elevators = [Elevator(id=i, capacity=ELEVATOR_CAPACITY) for i in range(self.num_elevators)]
+            starts = self.elevator_start_floors or [0] * self.num_elevators
+            self.elevators = [
+                Elevator(
+                    id=i,
+                    floor=starts[i] if i < len(starts) else 0,
+                    capacity=ELEVATOR_CAPACITY,
+                )
+                for i in range(self.num_elevators)
+            ]
 
     def get_floor(self, number: int) -> Floor:
         return self.floors[number]

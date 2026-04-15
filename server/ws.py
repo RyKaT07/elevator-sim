@@ -12,7 +12,8 @@ from sim.models import Building, Passenger
 from sim.simulation import Simulation
 from sim.algorithms.base import Algorithm
 from sim.algorithms.fcfs import FCFSAlgorithm
-from sim.scenarios import SCENARIOS
+from sim.scenarios import SCENARIOS, SCENARIO_ELEVATOR_POSITIONS
+from sim.cooperation import COOPERATION_STRATEGIES
 
 app = FastAPI(title="Elevator Simulator")
 
@@ -23,7 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Algorithm registry ──────────────────────────────────────────────
+# -- Algorithm registry --
 
 ALGORITHMS: dict[str, type[Algorithm]] = {
     "fcfs": FCFSAlgorithm,
@@ -31,7 +32,6 @@ ALGORITHMS: dict[str, type[Algorithm]] = {
 
 
 def _register_optional_algorithms() -> None:
-    """Import and register algorithms that may not exist yet."""
     try:
         from sim.algorithms.batch import BatchAlgorithm
         ALGORITHMS["batch"] = BatchAlgorithm
@@ -51,12 +51,12 @@ def _register_optional_algorithms() -> None:
 
 _register_optional_algorithms()
 
-# ── In-memory store for completed runs ──────────────────────────────
+# -- In-memory store --
 
 _runs: dict[str, dict[str, Any]] = {}
 
 
-# ── Request / response models ───────────────────────────────────────
+# -- Request / response models --
 
 class PassengerInput(BaseModel):
     floor: int
@@ -69,6 +69,7 @@ class RunRequest(BaseModel):
     metric: str = "wait_time"
     algorithm: str | None = None
     passenger_count: int = 14
+    cooperation: str | None = None
 
 
 class RunResponse(BaseModel):
@@ -77,19 +78,27 @@ class RunResponse(BaseModel):
     total_ticks: int
 
 
-# ── POST /run ────────────────────────────────────────────────────────
+# -- POST /run --
 
 @app.post("/run", response_model=RunResponse)
 async def run_simulation(req: RunRequest) -> RunResponse:
     run_id = uuid.uuid4().hex[:12]
 
-    # Resolve passengers: from scenario or from explicit list
+    # Resolve passengers
     if req.passengers:
         passenger_specs = [{"floor": p.floor, "destination": p.destination} for p in req.passengers]
     elif req.scenario in SCENARIOS:
         passenger_specs = SCENARIOS[req.scenario](count=req.passenger_count)
     else:
         passenger_specs = SCENARIOS["apartment_morning"](count=req.passenger_count)
+
+    # Resolve cooperation strategy
+    cooperation = None
+    if req.cooperation and req.cooperation in COOPERATION_STRATEGIES:
+        cooperation = COOPERATION_STRATEGIES[req.cooperation]()
+
+    # Resolve elevator starting positions from scenario
+    start_floors = SCENARIO_ELEVATOR_POSITIONS.get(req.scenario)
 
     algos_to_run: list[str] = (
         [req.algorithm] if req.algorithm and req.algorithm in ALGORITHMS
@@ -102,13 +111,17 @@ async def run_simulation(req: RunRequest) -> RunResponse:
     best_score: float = float("inf")
 
     for algo_name in algos_to_run:
-        building = Building()
+        building = Building(elevator_start_floors=start_floors)
         passengers = [
             Passenger(id=i, origin=p["floor"], destination=p["destination"])
             for i, p in enumerate(passenger_specs)
         ]
         algo = ALGORITHMS[algo_name]()
-        sim = Simulation(building, passengers, algo, scenario=req.scenario)
+        sim = Simulation(
+            building, passengers, algo,
+            scenario=req.scenario,
+            cooperation=cooperation,
+        )
         history = sim.run()
 
         metrics = sim.get_results()
@@ -144,7 +157,7 @@ async def run_simulation(req: RunRequest) -> RunResponse:
     )
 
 
-# ── WS /ws/{run_id} ─────────────────────────────────────────────────
+# -- WS /ws/{run_id} --
 
 @app.websocket("/ws/{run_id}")
 async def ws_playback(ws: WebSocket, run_id: str) -> None:
@@ -159,7 +172,6 @@ async def ws_playback(ws: WebSocket, run_id: str) -> None:
     selected = run["selected"]
     history = run["histories"][selected]
 
-    # Wait for client to send speed (ms per tick), default 500ms
     tick_delay = 0.5
     try:
         init_msg = await asyncio.wait_for(ws.receive_text(), timeout=2.0)
@@ -175,7 +187,6 @@ async def ws_playback(ws: WebSocket, run_id: str) -> None:
             await ws.send_json(frame)
             await asyncio.sleep(tick_delay)
 
-        # Send summary after last frame
         await ws.send_json({
             "status": "finished",
             "results": [
@@ -188,7 +199,7 @@ async def ws_playback(ws: WebSocket, run_id: str) -> None:
         pass
 
 
-# ── GET /results/{run_id} (fallback if WS not desired) ──────────────
+# -- GET /results/{run_id} --
 
 @app.get("/results/{run_id}")
 async def get_results(run_id: str) -> dict:
@@ -205,7 +216,7 @@ async def get_results(run_id: str) -> dict:
     }
 
 
-# ── GET /frames/{run_id} — all frames at once for client-side playback
+# -- GET /frames/{run_id} --
 
 @app.get("/frames/{run_id}")
 async def get_frames(run_id: str) -> dict:
@@ -225,8 +236,12 @@ async def get_frames(run_id: str) -> dict:
     }
 
 
-# ── Healthcheck ──────────────────────────────────────────────────────
+# -- Healthcheck --
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "algorithms": list(ALGORITHMS.keys())}
+    return {
+        "status": "ok",
+        "algorithms": list(ALGORITHMS.keys()),
+        "cooperation": list(COOPERATION_STRATEGIES.keys()),
+    }

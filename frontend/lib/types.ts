@@ -11,7 +11,7 @@ export interface ElevatorState {
   doors: boolean;
   phase: "idle" | "accelerating" | "cruising" | "decelerating" | "doors_opening" | "boarding" | "doors_closing";
   progress: number;
-  door_progress: number; // 0=closed, 1=fully open
+  door_progress: number;
   passengers: PassengerState[];
 }
 
@@ -34,6 +34,7 @@ export interface StateFrame {
   active_algorithm: string;
   scenario: string;
   status: "running" | "finished";
+  cooperation: string;
 }
 
 export interface AlgorithmResult {
@@ -52,6 +53,7 @@ export interface RunRequest {
   scenario?: string;
   metric: "wait_time" | "total_time" | "energy";
   algorithm?: string;
+  cooperation?: string;
 }
 
 export interface RunResponse {

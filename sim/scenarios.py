@@ -42,7 +42,7 @@ def office_morning(count: int = 14, floors: int = 7, seed: int = 42) -> list[Pas
     for _ in range(count):
         dest = rng.choices(
             population=list(range(1, floors)),
-            weights=[1] + [3] * (floors - 2),  # floor 1 less likely
+            weights=[1] + [3] * (floors - 2),
             k=1,
         )[0]
         passengers.append({"floor": 0, "destination": dest})
@@ -56,7 +56,6 @@ def office_evening(count: int = 14, floors: int = 7, seed: int = 42) -> list[Pas
     passengers: list[PassengerSpec] = []
     for _ in range(count):
         origin = rng.randint(1, floors - 1)
-        # 80% go to ground, 20% go to another floor
         if rng.random() < 0.8:
             dest = 0
         else:
@@ -70,6 +69,16 @@ SCENARIOS: dict[str, callable] = {
     "apartment_evening": apartment_evening,
     "office_morning": office_morning,
     "office_evening": office_evening,
+}
+
+
+# Initial elevator positions per scenario.
+# Elevators should start where demand is expected.
+SCENARIO_ELEVATOR_POSITIONS: dict[str, list[int]] = {
+    "apartment_morning": [0, 3],   # spread out — passengers come from all upper floors
+    "apartment_evening": [0, 0],   # both at ground — passengers arrive at ground
+    "office_morning":    [0, 0],   # both at ground — passengers arrive at ground
+    "office_evening":    [6, 3],   # both at top — passengers leave from upper floors
 }
 
 

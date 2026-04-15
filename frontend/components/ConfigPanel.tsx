@@ -25,6 +25,12 @@ const ALGORITHMS = [
   { value: "sequential", label: "Sekwencyjny (bez algorytmu)" },
 ];
 
+const COOPERATION_MODES = [
+  { value: "", label: "Brak (niezależne)" },
+  { value: "zone_split", label: "Podział strefowy (góra/dół)" },
+  { value: "task_split", label: "Podział zadaniowy (grupy/pojedyncze)" },
+];
+
 interface Props {
   onRun: (req: RunRequest) => void;
   isRunning: boolean;
@@ -45,6 +51,7 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
   const [scenario, setScenario] = useState("apartment_morning");
   const [metric, setMetric] = useState<"wait_time" | "total_time" | "energy">("wait_time");
   const [algorithm, setAlgorithm] = useState("");
+  const [cooperation, setCooperation] = useState("");
   const [passengerCount, setPassengerCount] = useState(14);
   const [customPassengers, setCustomPassengers] = useState("");
 
@@ -57,6 +64,7 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
           scenario: "custom",
           metric,
           algorithm: algorithm || undefined,
+          cooperation: cooperation || undefined,
         });
       } catch {
         alert("Nieprawidłowy JSON. Format: [{\"floor\":0,\"destination\":3}]");
@@ -69,6 +77,7 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
       scenario,
       metric,
       algorithm: algorithm || undefined,
+      cooperation: cooperation || undefined,
       passenger_count: passengerCount,
     } as any);
   };
@@ -144,6 +153,20 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
         >
           {ALGORITHMS.map((a) => (
             <option key={a.value} value={a.value}>{a.label}</option>
+          ))}
+        </select>
+      </label>
+
+      {/* Współpraca wind */}
+      <label className="flex flex-col gap-1">
+        <span className="text-sm text-slate-400">Współpraca wind</span>
+        <select
+          value={cooperation}
+          onChange={(e) => setCooperation(e.target.value)}
+          className="bg-slate-700 text-white rounded px-3 py-2 text-sm"
+        >
+          {COOPERATION_MODES.map((c) => (
+            <option key={c.value} value={c.value}>{c.label}</option>
           ))}
         </select>
       </label>
