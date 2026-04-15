@@ -50,6 +50,9 @@ class Simulation:
 
     Movement phases: ACCELERATING -> CRUISING -> DECELERATING -> BOARDING
     Each phase takes a configurable number of ticks per floor.
+
+    After all passengers are delivered the elevators return to their
+    starting positions before the simulation reports "finished".
     """
 
     def __init__(
@@ -72,14 +75,16 @@ class Simulation:
         self.history: list[StateFrame] = []
         self.metrics_collector = MetricsCollector()
         self._delivered: list[Passenger] = []
+        self._returning = False
+
+        # Remember where each elevator started so they can return
+        self._home_floors: list[int] = [e.floor for e in building.elevators]
 
         for p in self.passengers:
             p.spawn_tick = 0
             self.building.get_floor(p.origin).waiting.append(p)
 
-        # Cooperation: compute passenger-to-elevator assignments
-        # and create per-elevator algorithm instances so each has
-        # independent internal state (queues, direction tracking, etc.)
+        # Cooperation setup
         self._passenger_zones: dict[int, set[int]] | None = None
         self._zone_algorithms: dict[int, Algorithm] | None = None
         if cooperation is not None:
@@ -94,52 +99,79 @@ class Simulation:
     def run(self) -> list[StateFrame]:
         self.history.append(self._snapshot("running"))
 
-        while not self._is_done() and self.tick < self.max_ticks:
+        while self.tick < self.max_ticks:
             self.tick += 1
-            self._step()
-            status = "finished" if self._is_done() else "running"
-            self.history.append(self._snapshot(status))
+
+            if self._returning:
+                self._step_return_home()
+                if self._all_home():
+                    self.history.append(self._snapshot("finished"))
+                    break
+                self.history.append(self._snapshot("returning"))
+            else:
+                self._step()
+                if self._is_done():
+                    self._returning = True
+                    if self._all_home():
+                        self.history.append(self._snapshot("finished"))
+                        break
+                    self.history.append(self._snapshot("returning"))
+                else:
+                    self.history.append(self._snapshot("running"))
 
         return self.history
 
-    def _step(self) -> None:
-        # 1. Tick down any active phases
+    # -- Return-home logic --
+
+    def _step_return_home(self) -> None:
+        """Tick the physics and send idle elevators toward home."""
         for elev in self.building.elevators:
             if elev.phase != MovePhase.IDLE:
                 elev.phase_ticks_left -= 1
                 if elev.phase_ticks_left <= 0:
                     self._complete_phase(elev)
 
-        # 2. Get actions from algorithm(s)
+        for elev in self.building.elevators:
+            if elev.phase != MovePhase.IDLE:
+                continue
+            home = self._home_floors[elev.id]
+            if elev.floor != home:
+                self._start_move(elev, home)
+
+    def _all_home(self) -> bool:
+        return all(
+            e.floor == self._home_floors[e.id] and e.phase == MovePhase.IDLE
+            for e in self.building.elevators
+        )
+
+    # -- Normal step --
+
+    def _step(self) -> None:
+        for elev in self.building.elevators:
+            if elev.phase != MovePhase.IDLE:
+                elev.phase_ticks_left -= 1
+                if elev.phase_ticks_left <= 0:
+                    self._complete_phase(elev)
+
         if self._zone_algorithms is not None and self._passenger_zones is not None:
             actions = self._get_zone_actions()
         else:
             actions = self.algorithm.decide(self.building, self.tick)
 
-        # 3. Apply actions to idle elevators
         for action in actions:
             elev = self.building.get_elevator(action.elevator_id)
             if elev.phase != MovePhase.IDLE:
                 continue
-
             if action.open_doors and elev.floor == action.target_floor:
                 self._start_boarding(elev)
             elif action.target_floor is not None and action.target_floor != elev.floor:
                 self._start_move(elev, action.target_floor)
 
     def _get_zone_actions(self) -> list[ElevatorAction]:
-        """Run per-elevator algorithm instances with filtered building views.
-
-        Each instance only sees waiting passengers assigned to its elevator,
-        so the algorithm makes zone-aware decisions without any code changes.
-        """
         all_actions: list[ElevatorAction] = []
-
         for elev in self.building.elevators:
             algo = self._zone_algorithms[elev.id]
             allowed = self._passenger_zones.get(elev.id, set())
-
-            # Create filtered building view: same elevators, filtered waiting
             view = copy(self.building)
             view.floors = [
                 Floor(
@@ -148,16 +180,12 @@ class Simulation:
                 )
                 for f in self.building.floors
             ]
-            # Keep real elevator references
             view.elevators = self.building.elevators
-
             actions = algo.decide(view, self.tick)
-            # Take only the action for this elevator
             for a in actions:
                 if a.elevator_id == elev.id:
                     all_actions.append(a)
                     break
-
         return all_actions
 
     # -- Movement state machine --
@@ -167,7 +195,6 @@ class Simulation:
         elev.target_floor = target
         elev.floors_to_target = abs(target - elev.floor)
         elev.direction = Direction.UP if target > elev.floor else Direction.DOWN
-
         if elev.floors_to_target == 1:
             ticks = cfg.ACCEL_TICKS + cfg.DECEL_TICKS
             elev.phase = MovePhase.ACCELERATING
@@ -182,7 +209,6 @@ class Simulation:
         if elev.phase == MovePhase.ACCELERATING:
             self._do_floor_move(elev, is_accel=True)
             remaining = abs(elev.target_floor - elev.floor) if elev.target_floor is not None else 0
-
             if remaining == 0:
                 self._arrive(elev)
             elif remaining == 1:
@@ -193,11 +219,9 @@ class Simulation:
                 elev.phase = MovePhase.CRUISING
                 elev.phase_ticks_left = cfg.CRUISE_TICKS
                 elev.phase_ticks_total = cfg.CRUISE_TICKS
-
         elif elev.phase == MovePhase.CRUISING:
             self._do_floor_move(elev, is_accel=False)
             remaining = abs(elev.target_floor - elev.floor) if elev.target_floor is not None else 0
-
             if remaining == 0:
                 self._arrive(elev)
             elif remaining == 1:
@@ -207,11 +231,9 @@ class Simulation:
             else:
                 elev.phase_ticks_left = cfg.CRUISE_TICKS
                 elev.phase_ticks_total = cfg.CRUISE_TICKS
-
         elif elev.phase == MovePhase.DECELERATING:
             self._do_floor_move(elev, is_decel=True)
             self._arrive(elev)
-
         elif elev.phase == MovePhase.DOORS_OPENING:
             elev.doors = DoorState.OPEN
             pax_count = self._transfer_passengers(elev)
@@ -219,12 +241,10 @@ class Simulation:
             elev.phase = MovePhase.BOARDING
             elev.phase_ticks_left = board_ticks
             elev.phase_ticks_total = board_ticks
-
         elif elev.phase == MovePhase.BOARDING:
             elev.phase = MovePhase.DOORS_CLOSING
             elev.phase_ticks_left = cfg.DOORS_CLOSE_TICKS
             elev.phase_ticks_total = cfg.DOORS_CLOSE_TICKS
-
         elif elev.phase == MovePhase.DOORS_CLOSING:
             elev.doors = DoorState.CLOSED
             elev.phase = MovePhase.IDLE
@@ -237,7 +257,6 @@ class Simulation:
             elev.floor += 1
         elif elev.direction == Direction.DOWN:
             elev.floor -= 1
-
         if elev.floor != prev:
             self.metrics_collector.record_elevator_move(
                 elev.id, prev, elev.floor, is_accel=is_accel, is_decel=is_decel
@@ -249,7 +268,7 @@ class Simulation:
         elev.direction = Direction.IDLE
         self.metrics_collector.record_elevator_stop(elev.id)
 
-    # -- Boarding (door sequence) --
+    # -- Boarding --
 
     def _start_boarding(self, elev: Elevator) -> None:
         self.metrics_collector.record_elevator_stop(elev.id)
@@ -258,19 +277,15 @@ class Simulation:
         elev.phase_ticks_total = cfg.DOORS_OPEN_TICKS
 
     def _transfer_passengers(self, elev: Elevator) -> int:
-        """Move passengers in/out. Returns total count for boarding time calc."""
-        # Exit — always allowed regardless of cooperation
         exiting = [p for p in elev.passengers if p.destination == elev.floor]
         for p in exiting:
             p.dropoff_tick = self.tick
             elev.passengers.remove(p)
             self._delivered.append(p)
 
-        # Board
         floor = self.building.get_floor(elev.floor)
         candidates = list(floor.waiting)
 
-        # Cooperation filter: only board passengers assigned to this elevator
         if self._passenger_zones is not None:
             allowed = self._passenger_zones.get(elev.id, set())
             candidates = [p for p in candidates if p.id in allowed]
