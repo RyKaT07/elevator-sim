@@ -183,7 +183,7 @@ function draw(
     ctx.fillStyle = COLORS.text;
     ctx.font = "16px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("Press Run to start simulation", w / 2, canvasH / 2);
+    ctx.fillText("Naciśnij Uruchom, aby rozpocząć symulację", w / 2, canvasH / 2);
     return;
   }
 
@@ -316,7 +316,7 @@ function draw(
   ctx.fillStyle = COLORS.text;
   ctx.font = "14px monospace";
   ctx.textAlign = "left";
-  ctx.fillText(`Tick: ${frame.tick}`, 10, canvasH + 5);
+  ctx.fillText(`Takt: ${frame.tick}`, 10, canvasH + 5);
   ctx.textAlign = "right";
   ctx.fillText(frame.active_algorithm.toUpperCase(), w - 10, canvasH + 5);
 
@@ -328,11 +328,11 @@ function draw(
   const metricsY = canvasH + 20;
   ctx.font = "11px monospace";
   const metrics = [
-    { label: "Wait", value: `${m.avg_wait_time.toFixed(1)}t`, color: COLORS.metricValue },
-    { label: "Total", value: `${m.avg_total_time.toFixed(1)}t`, color: COLORS.metricValue },
-    { label: "Energy", value: `${m.energy.toFixed(1)}u`, color: COLORS.metricValue },
-    { label: "Waiting", value: `${totalWaiting}`, color: "#f59e0b" },
-    { label: "Transit", value: `${totalInTransit}`, color: "#22c55e" },
+    { label: "Oczek.", value: `${m.avg_wait_time.toFixed(1)}t`, color: COLORS.metricValue },
+    { label: "Całk.", value: `${m.avg_total_time.toFixed(1)}t`, color: COLORS.metricValue },
+    { label: "Energia", value: `${m.energy.toFixed(1)}j`, color: COLORS.metricValue },
+    { label: "Czekający", value: `${totalWaiting}`, color: "#f59e0b" },
+    { label: "W windzie", value: `${totalInTransit}`, color: "#22c55e" },
   ];
   const gap = w / metrics.length;
   metrics.forEach((met, i) => {

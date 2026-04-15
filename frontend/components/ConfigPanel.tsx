@@ -4,25 +4,25 @@ import { useState } from "react";
 import type { RunRequest } from "@/lib/types";
 
 const SCENARIOS = [
-  { value: "apartment_morning", label: "Apartment — Morning" },
-  { value: "apartment_evening", label: "Apartment — Evening" },
-  { value: "office_morning", label: "Office — Morning" },
-  { value: "office_evening", label: "Office — Evening" },
-  { value: "custom", label: "Custom (manual)" },
+  { value: "apartment_morning", label: "Blok — Poranek" },
+  { value: "apartment_evening", label: "Blok — Wieczór" },
+  { value: "office_morning", label: "Biuro — Poranek" },
+  { value: "office_evening", label: "Biuro — Wieczór" },
+  { value: "custom", label: "Własne (ręczne)" },
 ];
 
 const METRICS = [
-  { value: "wait_time", label: "Avg Wait Time" },
-  { value: "total_time", label: "Avg Total Time" },
-  { value: "energy", label: "Energy" },
+  { value: "wait_time", label: "Śr. czas oczekiwania" },
+  { value: "total_time", label: "Śr. czas całkowity" },
+  { value: "energy", label: "Energia" },
 ];
 
 const ALGORITHMS = [
-  { value: "", label: "Auto (compare all)" },
+  { value: "", label: "Auto (porównaj wszystkie)" },
   { value: "fcfs", label: "FCFS" },
   { value: "batch", label: "Batch" },
   { value: "sweep", label: "Sweep" },
-  { value: "sequential", label: "Sequential (no algorithm)" },
+  { value: "sequential", label: "Sekwencyjny (bez algorytmu)" },
 ];
 
 interface Props {
@@ -59,7 +59,7 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
           algorithm: algorithm || undefined,
         });
       } catch {
-        alert("Invalid JSON for custom passengers. Format: [{\"floor\":0,\"destination\":3}]");
+        alert("Nieprawidłowy JSON. Format: [{\"floor\":0,\"destination\":3}]");
       }
       return;
     }
@@ -75,11 +75,11 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
 
   return (
     <div className="flex flex-col gap-4 p-4 bg-slate-800 rounded-lg border border-slate-700">
-      <h2 className="text-lg font-bold text-white">Configuration</h2>
+      <h2 className="text-lg font-bold text-white">Konfiguracja</h2>
 
-      {/* Scenario */}
+      {/* Scenariusz */}
       <label className="flex flex-col gap-1">
-        <span className="text-sm text-slate-400">Scenario</span>
+        <span className="text-sm text-slate-400">Scenariusz</span>
         <select
           value={scenario}
           onChange={(e) => setScenario(e.target.value)}
@@ -91,10 +91,10 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
         </select>
       </label>
 
-      {/* Passenger count for predefined scenarios */}
+      {/* Liczba pasażerów */}
       {scenario !== "custom" && (
         <label className="flex flex-col gap-1">
-          <span className="text-sm text-slate-400">Passengers</span>
+          <span className="text-sm text-slate-400">Pasażerowie</span>
           <input
             type="number"
             min={1}
@@ -106,10 +106,10 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
         </label>
       )}
 
-      {/* Custom passengers input */}
+      {/* Własne dane */}
       {scenario === "custom" && (
         <label className="flex flex-col gap-1">
-          <span className="text-sm text-slate-400">Passengers (JSON)</span>
+          <span className="text-sm text-slate-400">Pasażerowie (JSON)</span>
           <textarea
             value={customPassengers}
             onChange={(e) => setCustomPassengers(e.target.value)}
@@ -120,9 +120,9 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
         </label>
       )}
 
-      {/* Metric */}
+      {/* Metryka */}
       <label className="flex flex-col gap-1">
-        <span className="text-sm text-slate-400">Optimize for</span>
+        <span className="text-sm text-slate-400">Optymalizuj pod kątem</span>
         <select
           value={metric}
           onChange={(e) => setMetric(e.target.value as typeof metric)}
@@ -134,9 +134,9 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
         </select>
       </label>
 
-      {/* Algorithm */}
+      {/* Algorytm */}
       <label className="flex flex-col gap-1">
-        <span className="text-sm text-slate-400">Algorithm</span>
+        <span className="text-sm text-slate-400">Algorytm</span>
         <select
           value={algorithm}
           onChange={(e) => setAlgorithm(e.target.value)}
@@ -148,9 +148,9 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
         </select>
       </label>
 
-      {/* Speed */}
+      {/* Prędkość */}
       <label className="flex flex-col gap-1">
-        <span className="text-sm text-slate-400">Playback Speed</span>
+        <span className="text-sm text-slate-400">Prędkość odtwarzania</span>
         <div className="flex gap-1">
           {SPEEDS.map((s) => (
             <button
@@ -168,21 +168,21 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
         </div>
       </label>
 
-      {/* Run / Stop */}
+      {/* Uruchom / Zatrzymaj */}
       <div className="flex gap-2 mt-2">
         <button
           onClick={handleRun}
           disabled={isRunning}
           className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 text-white font-bold py-2 px-4 rounded transition-colors"
         >
-          {isRunning ? "Running..." : "▶ Run"}
+          {isRunning ? "Symulacja..." : "▶ Uruchom"}
         </button>
         {isRunning && (
           <button
             onClick={onStop}
             className="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded transition-colors"
           >
-            ■ Stop
+            ■ Zatrzymaj
           </button>
         )}
       </div>

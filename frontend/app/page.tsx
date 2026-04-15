@@ -11,9 +11,9 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold">Elevator Simulator</h1>
+        <h1 className="text-2xl font-bold">Symulator Windy</h1>
         <p className="text-slate-400 text-sm">
-          PiASCR — 2 elevators, 7 floors, 3 algorithms
+          PiASCR — 2 windy, 7 pięter, 4 algorytmy
         </p>
       </header>
 
