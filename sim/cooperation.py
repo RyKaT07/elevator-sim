@@ -1,13 +1,9 @@
-"""Two-elevator cooperation strategies.
-
-These modify how passengers are assigned to elevators, layered on top
-of any scheduling algorithm. The cooperation strategy pre-filters which
-passengers each elevator is allowed to serve.
-"""
+"""Two-elevator cooperation strategies."""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import defaultdict
 
 from sim.models import Building, Passenger
 
@@ -21,7 +17,6 @@ class CooperationStrategy(ABC):
     def assign(
         self, building: Building, passengers: list[Passenger]
     ) -> dict[int, list[Passenger]]:
-        """Return elevator_id -> list of passengers it should serve."""
         ...
 
 
@@ -41,44 +36,62 @@ class ZoneSplit(CooperationStrategy):
         result: dict[int, list[Passenger]] = {
             e.id: [] for e in building.elevators
         }
-
         for p in passengers:
-            # Assign based on the higher of origin/destination
             key_floor = max(p.origin, p.destination)
             if key_floor < split:
                 result[0].append(p)
             else:
                 result[1].append(p)
-
         return result
 
 
 class TaskSplit(CooperationStrategy):
-    """Elevator 0 handles large batches (3+ passengers going to similar
-    floors), elevator 1 handles remaining quick singles."""
+    """Balance-by-floor-group: keep passengers from the same floor
+    together (efficient batching) but distribute floor groups across
+    elevators so neither sits idle.
+
+    Small groups (up to half of total passengers) are kept intact
+    and assigned to the least-loaded elevator.  Large groups that
+    would overload one elevator are split evenly.
+    """
 
     name = "task_split"
-
-    def __init__(self, batch_threshold: int = 3) -> None:
-        self._threshold = batch_threshold
 
     def assign(
         self, building: Building, passengers: list[Passenger]
     ) -> dict[int, list[Passenger]]:
-        from collections import Counter
-
-        result: dict[int, list[Passenger]] = {
-            e.id: [] for e in building.elevators
-        }
-
-        # Count passengers per origin floor
-        origin_counts = Counter(p.origin for p in passengers)
-
+        n_elev = len(building.elevators)
+        by_floor: dict[int, list[Passenger]] = defaultdict(list)
         for p in passengers:
-            if origin_counts[p.origin] >= self._threshold:
-                result[0].append(p)  # bulk elevator
+            by_floor[p.origin].append(p)
+
+        # Largest groups first for good greedy balance
+        sorted_floors = sorted(
+            by_floor.keys(), key=lambda f: len(by_floor[f]), reverse=True
+        )
+
+        result: dict[int, list[Passenger]] = {e.id: [] for e in building.elevators}
+        counts: dict[int, int] = {e.id: 0 for e in building.elevators}
+        fair_share = max(1, len(passengers) // n_elev)
+
+        for floor in sorted_floors:
+            group = by_floor[floor]
+
+            if len(group) <= fair_share:
+                # Small group: keep together, assign to least-loaded
+                target = min(counts, key=counts.get)
+                result[target].extend(group)
+                counts[target] += len(group)
             else:
-                result[1].append(p)  # quick elevator
+                # Large group: split across elevators
+                eids = sorted(counts, key=counts.get)
+                per_elev = len(group) // n_elev
+                start = 0
+                for i, eid in enumerate(eids):
+                    end = start + per_elev if i < n_elev - 1 else len(group)
+                    result[eid].extend(group[start:end])
+                    counts[eid] += end - start
+                    start = end
 
         return result
 
