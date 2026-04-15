@@ -168,10 +168,20 @@ class Simulation:
                 self._start_move(elev, action.target_floor)
 
     def _get_zone_actions(self) -> list[ElevatorAction]:
+        """Run per-elevator algorithm instances with filtered building views.
+
+        Each instance sees only its zone's passengers AND the other
+        elevators appear occupied so the algorithm focuses all its
+        scheduling effort on the controlled elevator.
+        """
         all_actions: list[ElevatorAction] = []
+        _sentinel = Passenger(id=-1, origin=0, destination=0)
+
         for elev in self.building.elevators:
             algo = self._zone_algorithms[elev.id]
             allowed = self._passenger_zones.get(elev.id, set())
+
+            # Filtered floors: only zone-relevant passengers visible
             view = copy(self.building)
             view.floors = [
                 Floor(
@@ -180,12 +190,33 @@ class Simulation:
                 )
                 for f in self.building.floors
             ]
-            view.elevators = self.building.elevators
+
+            # Other elevators appear busy+occupied so algorithms
+            # won't assign passengers to them.
+            view_elevators: list[Elevator] = []
+            for e in self.building.elevators:
+                if e.id == elev.id:
+                    view_elevators.append(e)
+                else:
+                    decoy = Elevator(
+                        id=e.id,
+                        floor=e.floor,
+                        direction=e.direction,
+                        passengers=[_sentinel],
+                        capacity=e.capacity,
+                        phase=MovePhase.CRUISING,
+                        phase_ticks_left=999,
+                        phase_ticks_total=999,
+                    )
+                    view_elevators.append(decoy)
+            view.elevators = view_elevators
+
             actions = algo.decide(view, self.tick)
             for a in actions:
                 if a.elevator_id == elev.id:
                     all_actions.append(a)
                     break
+
         return all_actions
 
     # -- Movement state machine --
