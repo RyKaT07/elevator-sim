@@ -75,10 +75,7 @@ class Simulation:
         self.history: list[StateFrame] = []
         self.metrics_collector = MetricsCollector()
         self._delivered: list[Passenger] = []
-        self._returning = False
-
-        # Remember where each elevator started so they can return
-        self._home_floors: list[int] = [e.floor for e in building.elevators]
+        self._passengers_done = False
 
         for p in self.passengers:
             p.spawn_tick = 0
@@ -101,58 +98,38 @@ class Simulation:
 
         while self.tick < self.max_ticks:
             self.tick += 1
+            self._step_physics()
 
-            if self._returning:
-                self._step_return_home()
-                if self._all_home():
-                    self.history.append(self._snapshot("finished"))
-                    break
-                self.history.append(self._snapshot("returning"))
-            else:
-                self._step()
+            if not self._passengers_done:
+                self._step_algorithm()
                 if self._is_done():
-                    self._returning = True
-                    if self._all_home():
-                        self.history.append(self._snapshot("finished"))
-                        break
-                    self.history.append(self._snapshot("returning"))
-                else:
-                    self.history.append(self._snapshot("running"))
+                    self._passengers_done = True
+
+            # Finished when all passengers delivered AND every
+            # elevator has come to a stop (not mid-floor).
+            if self._passengers_done and self._all_idle():
+                self.history.append(self._snapshot("finished"))
+                break
+
+            self.history.append(self._snapshot("running"))
 
         return self.history
 
-    # -- Return-home logic --
+    # -- Step helpers --
 
-    def _step_return_home(self) -> None:
-        """Tick the physics and send idle elevators toward home."""
-        for elev in self.building.elevators:
-            if elev.phase != MovePhase.IDLE:
-                elev.phase_ticks_left -= 1
-                if elev.phase_ticks_left <= 0:
-                    self._complete_phase(elev)
-
-        for elev in self.building.elevators:
-            if elev.phase != MovePhase.IDLE:
-                continue
-            home = self._home_floors[elev.id]
-            if elev.floor != home:
-                self._start_move(elev, home)
-
-    def _all_home(self) -> bool:
+    def _all_idle(self) -> bool:
         return all(
-            e.floor == self._home_floors[e.id] and e.phase == MovePhase.IDLE
-            for e in self.building.elevators
+            e.phase == MovePhase.IDLE for e in self.building.elevators
         )
 
-    # -- Normal step --
-
-    def _step(self) -> None:
+    def _step_physics(self) -> None:
         for elev in self.building.elevators:
             if elev.phase != MovePhase.IDLE:
                 elev.phase_ticks_left -= 1
                 if elev.phase_ticks_left <= 0:
                     self._complete_phase(elev)
 
+    def _step_algorithm(self) -> None:
         if self._zone_algorithms is not None and self._passenger_zones is not None:
             actions = self._get_zone_actions()
         else:

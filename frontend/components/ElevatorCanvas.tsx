@@ -318,8 +318,7 @@ function draw(
   ctx.textAlign = "left";
   ctx.fillText(`Takt: ${frame.tick}`, 10, canvasH + 5);
   ctx.textAlign = "right";
-  const algoLabel = frame.status === "returning" ? frame.active_algorithm.toUpperCase() + " — Powrót" : frame.active_algorithm.toUpperCase();
-  ctx.fillText(algoLabel, w - 10, canvasH + 5);
+  ctx.fillText(frame.active_algorithm.toUpperCase(), w - 10, canvasH + 5);
 
   // Metrics bar (drawn on canvas, not React)
   const m = frame.metrics;

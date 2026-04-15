@@ -33,7 +33,7 @@ export interface StateFrame {
   metrics: MetricsState;
   active_algorithm: string;
   scenario: string;
-  status: "running" | "returning" | "finished";
+  status: "running" | "finished";
   cooperation: string;
 }
 
