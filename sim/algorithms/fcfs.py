@@ -1,138 +1,93 @@
 from __future__ import annotations
 
-from sim.models import Building, Direction, ElevatorAction, Elevator, Passenger
+from sim.models import Building, Elevator, ElevatorAction, Passenger
 from sim.algorithms.base import Algorithm
 
 
 class FCFSAlgorithm(Algorithm):
-    """First-Come First-Served: assign requests to nearest idle elevator
-    in the order passengers appeared."""
+    """First-Come First-Served: pick up passengers in the order they
+    appeared.  Keeps collecting until full, then delivers.
+    Picks up and drops off at intermediate floors on the way.
+    """
 
     name = "fcfs"
 
     def __init__(self) -> None:
-        # Queue of unassigned passenger IDs (by spawn order)
         self._queue: list[int] = []
-        # elevator_id -> passenger_id currently being served (pickup phase)
-        self._pickup_assignments: dict[int, int] = {}
-        # Set of passenger IDs already assigned
-        self._assigned: set[int] = set()
+        self._seen: set[int] = set()
 
     def decide(self, building: Building, tick: int) -> list[ElevatorAction]:
-        # Add new waiting passengers to queue (maintain spawn order)
+        # Track new waiting passengers in arrival order
         for floor in building.floors:
             for p in floor.waiting:
-                if p.id not in self._assigned and p.id not in self._queue:
+                if p.id not in self._seen:
                     self._queue.append(p.id)
+                    self._seen.add(p.id)
 
-        # Clean up completed pickups (passenger is now inside elevator)
-        for eid, pid in list(self._pickup_assignments.items()):
-            elev = building.get_elevator(eid)
-            if pid in elev.passenger_ids():
-                del self._pickup_assignments[eid]
-            # Also clean up if passenger disappeared from waiting (edge case)
-            elif not self._passenger_still_waiting(building, pid):
-                del self._pickup_assignments[eid]
-                self._assigned.discard(pid)
-
-        # Try to assign queued passengers to idle elevators
-        self._assign_from_queue(building)
-
-        # Generate actions
-        actions: list[ElevatorAction] = []
+        # Remove passengers already picked up or gone
+        in_elevators: set[int] = set()
         for elev in building.elevators:
-            action = self._decide_single(building, elev, tick)
+            in_elevators.update(p.id for p in elev.passengers)
+        self._queue = [
+            pid for pid in self._queue
+            if pid not in in_elevators
+            and _find_passenger(building, pid) is not None
+        ]
+
+        actions: list[ElevatorAction] = []
+        claimed: set[int] = set()
+        for elev in building.elevators:
+            action = self._decide_single(building, elev, claimed)
+            if action.target_floor is not None and not action.open_doors:
+                claimed.add(action.target_floor)
             actions.append(action)
         return actions
 
-    def _assign_from_queue(self, building: Building) -> None:
-        idle_elevators = [
-            e for e in building.elevators
-            if e.id not in self._pickup_assignments and e.is_empty
-        ]
-
-        # Track floors being served and how many passengers wait there
-        floors_served_by: dict[int, int] = {}  # floor -> count of elevators heading there
-        for eid, pid in self._pickup_assignments.items():
-            p = self._find_passenger(building, pid)
-            if p is not None:
-                floors_served_by[p.origin] = floors_served_by.get(p.origin, 0) + 1
-
-        while self._queue and idle_elevators:
-            pid = self._queue[0]
-            if not self._passenger_still_waiting(building, pid):
-                self._queue.pop(0)
-                self._assigned.discard(pid)
-                continue
-
-            passenger = self._find_passenger(building, pid)
-            if passenger is None:
-                self._queue.pop(0)
-                continue
-
-            # Skip floor if enough elevators already heading there
-            # (1 elevator per 8 waiting passengers)
-            floor_obj = building.get_floor(passenger.origin)
-            waiting_count = len(floor_obj.waiting)
-            elevators_needed = max(1, (waiting_count + 7) // 8)  # ceil division
-            elevators_assigned = floors_served_by.get(passenger.origin, 0)
-            if elevators_assigned >= elevators_needed:
-                self._queue.pop(0)
-                continue
-
-            nearest = min(
-                idle_elevators,
-                key=lambda e: abs(e.floor - passenger.origin),
-            )
-            self._pickup_assignments[nearest.id] = pid
-            self._assigned.add(pid)
-            floors_served_by[passenger.origin] = elevators_assigned + 1
-            idle_elevators.remove(nearest)
-            self._queue.pop(0)
-
     def _decide_single(
-        self, building: Building, elev: Elevator, tick: int
+        self, building: Building, elev: Elevator, claimed: set[int]
     ) -> ElevatorAction:
-        # Priority 1: deliver passengers already inside
+        # 1. Exit at destination
+        if any(p.destination == elev.floor for p in elev.passengers):
+            return ElevatorAction(elev.id, elev.floor, open_doors=True)
+
+        # 2. Board at current floor
+        if not elev.is_full and building.get_floor(elev.floor).waiting:
+            return ElevatorAction(elev.id, elev.floor, open_doors=True)
+
+        # 3. Not full AND queued passengers waiting -> keep collecting
+        if not elev.is_full:
+            for pid in self._queue:
+                p = _find_passenger(building, pid)
+                if p is not None and p.origin not in claimed:
+                    claimed.add(p.origin)
+                    stop = _stop_on_way(building, elev, p.origin)
+                    return ElevatorAction(elev.id, stop)
+
+        # 4. Full or nobody in queue -> deliver (FCFS: first passenger first)
         if not elev.is_empty:
-            # Go to the first passenger's destination (FCFS order)
             target = elev.passengers[0].destination
-            if elev.floor == target:
-                return ElevatorAction(
-                    elevator_id=elev.id, target_floor=target, open_doors=True
-                )
-            return ElevatorAction(elevator_id=elev.id, target_floor=target)
+            stop = _stop_on_way(building, elev, target)
+            return ElevatorAction(elev.id, stop)
 
-        # Priority 2: go pick up assigned passenger
-        if elev.id in self._pickup_assignments:
-            pid = self._pickup_assignments[elev.id]
-            passenger = self._find_passenger(building, pid)
-            if passenger is not None:
-                if elev.floor == passenger.origin:
-                    return ElevatorAction(
-                        elevator_id=elev.id,
-                        target_floor=passenger.origin,
-                        open_doors=True,
-                    )
-                return ElevatorAction(
-                    elevator_id=elev.id, target_floor=passenger.origin
-                )
+        return ElevatorAction(elev.id)
 
-        # Idle
-        return ElevatorAction(elevator_id=elev.id)
 
-    @staticmethod
-    def _find_passenger(building: Building, pid: int) -> Passenger | None:
-        for floor in building.floors:
-            for p in floor.waiting:
-                if p.id == pid:
-                    return p
-        return None
+def _find_passenger(building: Building, pid: int) -> Passenger | None:
+    for floor in building.floors:
+        for p in floor.waiting:
+            if p.id == pid:
+                return p
+    return None
 
-    @staticmethod
-    def _passenger_still_waiting(building: Building, pid: int) -> bool:
-        for floor in building.floors:
-            for p in floor.waiting:
-                if p.id == pid:
-                    return True
-        return False
+
+def _stop_on_way(building: Building, elev: Elevator, target: int) -> int:
+    """Check for useful intermediate stops between here and target."""
+    if target == elev.floor:
+        return target
+    step = 1 if target > elev.floor else -1
+    for f_num in range(elev.floor + step, target, step):
+        if any(p.destination == f_num for p in elev.passengers):
+            return f_num
+        if not elev.is_full and building.get_floor(f_num).waiting:
+            return f_num
+    return target

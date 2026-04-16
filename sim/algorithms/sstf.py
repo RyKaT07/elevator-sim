@@ -6,12 +6,9 @@ from sim.algorithms.base import Algorithm
 
 class SSTFAlgorithm(Algorithm):
     """Shortest Seek Time First (Nearest Call): always go to the
-    nearest floor that has a waiting passenger or the nearest
-    destination of a passenger inside.
-
-    Minimises empty travel but can starve distant floors when
-    requests keep arriving nearby — a well-known trade-off from
-    disk-scheduling theory.
+    nearest floor with waiting passengers.  Keeps collecting until
+    full, then delivers to nearest destination.  Picks up and drops
+    off at intermediate floors on the way.
     """
 
     name = "sstf"
@@ -19,7 +16,6 @@ class SSTFAlgorithm(Algorithm):
     def decide(self, building: Building, tick: int) -> list[ElevatorAction]:
         actions: list[ElevatorAction] = []
         claimed: set[int] = set()
-
         for elev in building.elevators:
             action = self._decide_single(building, elev, claimed)
             if action.target_floor is not None and not action.open_doors:
@@ -31,7 +27,7 @@ class SSTFAlgorithm(Algorithm):
     def _decide_single(
         building: Building, elev: Elevator, claimed: set[int]
     ) -> ElevatorAction:
-        # 1. Let passengers out at their destination
+        # 1. Exit at destination
         if any(p.destination == elev.floor for p in elev.passengers):
             return ElevatorAction(elev.id, elev.floor, open_doors=True)
 
@@ -39,20 +35,23 @@ class SSTFAlgorithm(Algorithm):
         if not elev.is_full and building.get_floor(elev.floor).waiting:
             return ElevatorAction(elev.id, elev.floor, open_doors=True)
 
-        # 3. Carrying passengers -> nearest destination
+        # 3. Not full AND someone waiting -> keep collecting (nearest floor)
+        if not elev.is_full:
+            target = _nearest_waiting(building, elev.floor, exclude=claimed)
+            if target is None:
+                target = _nearest_waiting(building, elev.floor, exclude=set())
+            if target is not None:
+                stop = _stop_on_way(building, elev, target)
+                return ElevatorAction(elev.id, stop)
+
+        # 4. Full or nobody waiting -> deliver (nearest destination)
         if not elev.is_empty:
             nearest = min(
                 elev.passengers, key=lambda p: abs(p.destination - elev.floor)
             )
-            return ElevatorAction(elev.id, nearest.destination)
-
-        # 4. Empty -> nearest floor with waiting passengers
-        best = _nearest_waiting(building, elev.floor, exclude=claimed)
-        if best is None:
-            best = _nearest_waiting(building, elev.floor, exclude=set())
-
-        if best is not None:
-            return ElevatorAction(elev.id, best)
+            target = nearest.destination
+            stop = _stop_on_way(building, elev, target)
+            return ElevatorAction(elev.id, stop)
 
         return ElevatorAction(elev.id)
 
@@ -70,3 +69,16 @@ def _nearest_waiting(
             best_dist = dist
             best_floor = floor.number
     return best_floor
+
+
+def _stop_on_way(building: Building, elev: Elevator, target: int) -> int:
+    """Check for useful intermediate stops between here and target."""
+    if target == elev.floor:
+        return target
+    step = 1 if target > elev.floor else -1
+    for f_num in range(elev.floor + step, target, step):
+        if any(p.destination == f_num for p in elev.passengers):
+            return f_num
+        if not elev.is_full and building.get_floor(f_num).waiting:
+            return f_num
+    return target
