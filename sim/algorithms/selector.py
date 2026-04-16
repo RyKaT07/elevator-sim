@@ -5,21 +5,21 @@ from sim.simulation import Simulation
 from sim.metrics import Metrics
 from sim.algorithms.base import Algorithm
 from sim.algorithms.fcfs import FCFSAlgorithm
-from sim.algorithms.batch import BatchAlgorithm
-from sim.algorithms.sweep import SweepAlgorithm
-from sim.algorithms.sequential import SequentialAlgorithm
+from sim.algorithms.batch import LargestGroupAlgorithm
+from sim.algorithms.sweep import ScanAlgorithm
+from sim.algorithms.sstf import SSTFAlgorithm
 
 
 ALL_ALGORITHMS: dict[str, type[Algorithm]] = {
     "fcfs": FCFSAlgorithm,
-    "batch": BatchAlgorithm,
-    "sweep": SweepAlgorithm,
-    "sequential": SequentialAlgorithm,
+    "largest_group": LargestGroupAlgorithm,
+    "scan": ScanAlgorithm,
+    "sstf": SSTFAlgorithm,
 }
 
 METRIC_KEY = {
     "wait_time": "avg_wait_time",
-    "total_time": "avg_total_time",
+    "max_wait_time": "max_wait_time",
     "energy": "energy",
 }
 
@@ -31,18 +31,6 @@ def select_best(
     num_elevators: int = 2,
     scenario: str = "custom",
 ) -> tuple[str, dict[str, Metrics]]:
-    """Run all algorithms on the same passenger set, return the best one.
-
-    Args:
-        passengers_spec: list of {"floor": int, "destination": int}
-        metric: one of "wait_time", "total_time", "energy"
-        num_floors: number of floors in the building
-        num_elevators: number of elevators
-        scenario: scenario name for labeling
-
-    Returns:
-        (best_algorithm_name, {algo_name: Metrics})
-    """
     key = METRIC_KEY.get(metric, "avg_wait_time")
     results: dict[str, Metrics] = {}
     best_algo: str = ""
@@ -61,7 +49,6 @@ def select_best(
         m = sim.get_results()
         delivered = len([p for p in passengers if p.dropoff_tick is not None])
         results[algo_name] = m
-        # Penalize algorithms that didn't deliver everyone
         score = getattr(m, key)
         if delivered < len(passengers):
             score = float("inf")

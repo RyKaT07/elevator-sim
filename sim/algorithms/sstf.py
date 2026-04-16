@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-from collections import Counter
-
 from sim.models import Building, Elevator, ElevatorAction
 from sim.algorithms.base import Algorithm
 
 
-class LargestGroupAlgorithm(Algorithm):
-    """Largest Group First: always go to the floor with the most
-    waiting passengers.  Minimises average wait time by serving
-    large crowds before isolated singles.
+class SSTFAlgorithm(Algorithm):
+    """Shortest Seek Time First (Nearest Call): always go to the
+    nearest floor that has a waiting passenger or the nearest
+    destination of a passenger inside.
 
-    When carrying passengers, deliver to the destination shared by
-    the most passengers inside (reduces stops).
+    Minimises empty travel but can starve distant floors when
+    requests keep arriving nearby — a well-known trade-off from
+    disk-scheduling theory.
     """
 
-    name = "largest_group"
+    name = "sstf"
 
     def decide(self, building: Building, tick: int) -> list[ElevatorAction]:
         actions: list[ElevatorAction] = []
@@ -36,21 +35,21 @@ class LargestGroupAlgorithm(Algorithm):
         if any(p.destination == elev.floor for p in elev.passengers):
             return ElevatorAction(elev.id, elev.floor, open_doors=True)
 
-        # 2. Board passengers waiting at current floor
+        # 2. Board at current floor
         if not elev.is_full and building.get_floor(elev.floor).waiting:
             return ElevatorAction(elev.id, elev.floor, open_doors=True)
 
-        # 3. Carrying passengers -> go to most popular destination
+        # 3. Carrying passengers -> nearest destination
         if not elev.is_empty:
-            dests = Counter(p.destination for p in elev.passengers)
-            best_dest = dests.most_common(1)[0][0]
-            return ElevatorAction(elev.id, best_dest)
+            nearest = min(
+                elev.passengers, key=lambda p: abs(p.destination - elev.floor)
+            )
+            return ElevatorAction(elev.id, nearest.destination)
 
-        # 4. Empty -> go to floor with the largest waiting crowd
-        #    (skip floors another elevator is already heading to)
-        best = _busiest_floor(building, exclude=claimed)
+        # 4. Empty -> nearest floor with waiting passengers
+        best = _nearest_waiting(building, elev.floor, exclude=claimed)
         if best is None:
-            best = _busiest_floor(building, exclude=set())
+            best = _nearest_waiting(building, elev.floor, exclude=set())
 
         if best is not None:
             return ElevatorAction(elev.id, best)
@@ -58,14 +57,16 @@ class LargestGroupAlgorithm(Algorithm):
         return ElevatorAction(elev.id)
 
 
-def _busiest_floor(building: Building, exclude: set[int]) -> int | None:
+def _nearest_waiting(
+    building: Building, current: int, exclude: set[int]
+) -> int | None:
     best_floor: int | None = None
-    best_count = 0
+    best_dist = float("inf")
     for floor in building.floors:
-        if floor.number in exclude:
+        if not floor.waiting or floor.number in exclude:
             continue
-        n = len(floor.waiting)
-        if n > best_count:
-            best_count = n
+        dist = abs(floor.number - current)
+        if dist < best_dist:
+            best_dist = dist
             best_floor = floor.number
     return best_floor

@@ -316,7 +316,7 @@ function draw(
   ctx.fillStyle = COLORS.text;
   ctx.font = "14px monospace";
   ctx.textAlign = "left";
-  ctx.fillText(`Takt: ${frame.tick}`, 10, canvasH + 5);
+  ctx.fillText(`${frame.tick}s`, 10, canvasH + 5);
   ctx.textAlign = "right";
   ctx.fillText(frame.active_algorithm.toUpperCase(), w - 10, canvasH + 5);
 
@@ -328,9 +328,9 @@ function draw(
   const metricsY = canvasH + 20;
   ctx.font = "11px monospace";
   const metrics = [
-    { label: "Oczek.", value: `${m.avg_wait_time.toFixed(1)}t`, color: COLORS.metricValue },
-    { label: "Całk.", value: `${m.avg_total_time.toFixed(1)}t`, color: COLORS.metricValue },
-    { label: "Energia", value: `${m.energy.toFixed(1)}j`, color: COLORS.metricValue },
+    { label: "Oczek.", value: `${m.avg_wait_time.toFixed(1)}s`, color: COLORS.metricValue },
+    { label: "Maks.", value: `${m.max_wait_time.toFixed(1)}s`, color: COLORS.metricValue },
+    { label: "Energia", value: `${m.energy.toFixed(2)}`, color: COLORS.metricValue },
     { label: "Czekający", value: `${totalWaiting}`, color: "#f59e0b" },
     { label: "W windzie", value: `${totalInTransit}`, color: "#22c55e" },
   ];

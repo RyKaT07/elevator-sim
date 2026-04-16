@@ -15,9 +15,9 @@ export default function MetricsBar({ frame }: Props) {
 
   return (
     <div className="flex gap-4 p-3 bg-slate-800 rounded-lg border border-slate-700 text-sm">
-      <Stat label="Śr. oczek." value={`${metrics.avg_wait_time.toFixed(1)}t`} />
-      <Stat label="Śr. całk." value={`${metrics.avg_total_time.toFixed(1)}t`} />
-      <Stat label="Energia" value={`${metrics.energy.toFixed(1)}j`} />
+      <Stat label="Śr. oczek." value={`${metrics.avg_wait_time.toFixed(1)}s`} />
+      <Stat label="Maks. oczek." value={`${metrics.max_wait_time.toFixed(1)}s`} />
+      <Stat label="Energia" value={`${metrics.energy.toFixed(2)}`} />
       <Stat label="Czekający" value={`${totalWaiting}`} color="text-amber-400" />
       <Stat label="W windzie" value={`${totalInElevators}`} color="text-green-400" />
     </div>

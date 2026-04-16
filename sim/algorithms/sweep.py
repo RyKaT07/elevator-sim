@@ -4,7 +4,7 @@ from sim.models import Building, Direction, Elevator, ElevatorAction, Passenger
 from sim.algorithms.base import Algorithm
 
 
-class SweepAlgorithm(Algorithm):
+class ScanAlgorithm(Algorithm):
     """Directional sweep (SCAN / elevator algorithm): each elevator
     moves in one direction, serving all requests along the way,
     then reverses direction.
@@ -13,7 +13,7 @@ class SweepAlgorithm(Algorithm):
     and delivering passengers, then sweeps down, repeating until done.
     """
 
-    name = "sweep"
+    name = "scan"
 
     def __init__(self) -> None:
         self._directions: dict[int, Direction] = {}

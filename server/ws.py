@@ -12,6 +12,9 @@ from sim.models import Building, Passenger
 from sim.simulation import Simulation
 from sim.algorithms.base import Algorithm
 from sim.algorithms.fcfs import FCFSAlgorithm
+from sim.algorithms.batch import LargestGroupAlgorithm
+from sim.algorithms.sweep import ScanAlgorithm
+from sim.algorithms.sstf import SSTFAlgorithm
 from sim.scenarios import SCENARIOS, SCENARIO_ELEVATOR_POSITIONS
 from sim.cooperation import COOPERATION_STRATEGIES
 
@@ -28,28 +31,10 @@ app.add_middleware(
 
 ALGORITHMS: dict[str, type[Algorithm]] = {
     "fcfs": FCFSAlgorithm,
+    "largest_group": LargestGroupAlgorithm,
+    "scan": ScanAlgorithm,
+    "sstf": SSTFAlgorithm,
 }
-
-
-def _register_optional_algorithms() -> None:
-    try:
-        from sim.algorithms.batch import BatchAlgorithm
-        ALGORITHMS["batch"] = BatchAlgorithm
-    except ImportError:
-        pass
-    try:
-        from sim.algorithms.sweep import SweepAlgorithm
-        ALGORITHMS["sweep"] = SweepAlgorithm
-    except ImportError:
-        pass
-    try:
-        from sim.algorithms.sequential import SequentialAlgorithm
-        ALGORITHMS["sequential"] = SequentialAlgorithm
-    except ImportError:
-        pass
-
-
-_register_optional_algorithms()
 
 # -- In-memory store --
 
@@ -127,7 +112,7 @@ async def run_simulation(req: RunRequest) -> RunResponse:
         metrics = sim.get_results()
         metric_map = {
             "wait_time": metrics.avg_wait_time,
-            "total_time": metrics.avg_total_time,
+            "max_wait_time": metrics.max_wait_time,
             "energy": metrics.energy,
         }
         score = metric_map.get(req.metric, metrics.avg_wait_time)

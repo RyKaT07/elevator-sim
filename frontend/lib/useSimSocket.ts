@@ -10,7 +10,7 @@ export function useSimSocket() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [speed, setSpeed] = useState(500);
+  const [speed, setSpeed] = useState(1000);
 
   const [playbackToken, setPlaybackToken] = useState(0);
   const allFramesRef = useRef<StateFrame[]>([]);

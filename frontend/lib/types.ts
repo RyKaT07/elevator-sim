@@ -22,7 +22,7 @@ export interface FloorState {
 
 export interface MetricsState {
   avg_wait_time: number;
-  avg_total_time: number;
+  max_wait_time: number;
   energy: number;
 }
 
@@ -51,7 +51,7 @@ export interface Summary {
 export interface RunRequest {
   passengers: { floor: number; destination: number }[];
   scenario?: string;
-  metric: "wait_time" | "total_time" | "energy";
+  metric: "wait_time" | "max_wait_time" | "energy";
   algorithm?: string;
   cooperation?: string;
 }

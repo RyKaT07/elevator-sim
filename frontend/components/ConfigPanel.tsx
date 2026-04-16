@@ -15,16 +15,16 @@ const SCENARIOS = [
 
 const METRICS = [
   { value: "wait_time", label: "Śr. czas oczekiwania" },
-  { value: "total_time", label: "Śr. czas całkowity" },
-  { value: "energy", label: "Energia" },
+  { value: "max_wait_time", label: "Maks. czas oczekiwania" },
+  { value: "energy", label: "Energia (j/os·p)" },
 ];
 
 const ALGORITHMS = [
   { value: "", label: "Auto (porównaj wszystkie)" },
-  { value: "fcfs", label: "FCFS" },
-  { value: "batch", label: "Batch" },
-  { value: "sweep", label: "Sweep" },
-  { value: "sequential", label: "Sekwencyjny (bez algorytmu)" },
+  { value: "fcfs", label: "Wg kolejności wezwań" },
+  { value: "largest_group", label: "Wg ilości pasażerów" },
+  { value: "scan", label: "Góra-dół" },
+  { value: "sstf", label: "Najbliższe wezwanie" },
 ];
 
 const COOPERATION_MODES = [
@@ -42,11 +42,11 @@ interface Props {
 }
 
 const SPEEDS = [
-  { value: 2000, label: "0.25x" },
-  { value: 1000, label: "0.5x" },
-  { value: 500,  label: "1x" },
-  { value: 150,  label: "2x" },
-  { value: 50,   label: "5x" },
+  { value: 2000, label: "0.5x" },
+  { value: 1000, label: "1x" },
+  { value: 500,  label: "2x" },
+  { value: 200,  label: "5x" },
+  { value: 100,  label: "10x" },
 ];
 
 interface ManualPassenger {
@@ -56,7 +56,7 @@ interface ManualPassenger {
 
 export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedChange }: Props) {
   const [scenario, setScenario] = useState("apartment_morning");
-  const [metric, setMetric] = useState<"wait_time" | "total_time" | "energy">("wait_time");
+  const [metric, setMetric] = useState<"wait_time" | "max_wait_time" | "energy">("wait_time");
   const [algorithm, setAlgorithm] = useState("");
   const [cooperation, setCooperation] = useState("");
   const [passengerCount, setPassengerCount] = useState(14);

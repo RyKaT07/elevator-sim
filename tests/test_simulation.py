@@ -58,7 +58,7 @@ def test_metrics_computed():
     sim.run()
 
     results = sim.get_results()
-    assert results.avg_total_time > 0
+    assert results.max_wait_time >= 0
     assert results.energy > 0
 
 
