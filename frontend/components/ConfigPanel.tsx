@@ -49,10 +49,13 @@ const SPEEDS = [
   { value: 100,  label: "10x" },
 ];
 
-interface ManualPassenger {
+interface ManualGroup {
   floor: number;
   destination: number;
+  count: number;
 }
+
+const MAX_GROUP_SIZE = 20;
 
 export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedChange }: Props) {
   const [scenario, setScenario] = useState("apartment_morning");
@@ -61,30 +64,62 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
   const [cooperation, setCooperation] = useState("");
   const [passengerCount, setPassengerCount] = useState(14);
 
-  // Manual passenger editor state
-  const [manualPassengers, setManualPassengers] = useState<ManualPassenger[]>([]);
+  // Manual passenger editor state — now grouped by (from, to, count)
+  const [manualGroups, setManualGroups] = useState<ManualGroup[]>([]);
   const [addFloor, setAddFloor] = useState(0);
   const [addDest, setAddDest] = useState(3);
+  const [addCount, setAddCount] = useState(1);
 
-  const addPassenger = () => {
+  const totalManual = manualGroups.reduce((s, g) => s + g.count, 0);
+
+  const addGroup = () => {
     if (addFloor === addDest) return;
-    setManualPassengers((prev) => [...prev, { floor: addFloor, destination: addDest }]);
+    const count = Math.max(1, Math.min(MAX_GROUP_SIZE, addCount));
+    setManualGroups((prev) => {
+      // Merge with existing group if same route
+      const idx = prev.findIndex(
+        (g) => g.floor === addFloor && g.destination === addDest,
+      );
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = {
+          ...next[idx],
+          count: Math.min(MAX_GROUP_SIZE, next[idx].count + count),
+        };
+        return next;
+      }
+      return [...prev, { floor: addFloor, destination: addDest, count }];
+    });
   };
 
-  const removePassenger = (idx: number) => {
-    setManualPassengers((prev) => prev.filter((_, i) => i !== idx));
+  const updateGroupCount = (idx: number, count: number) => {
+    const c = Math.max(1, Math.min(MAX_GROUP_SIZE, count));
+    setManualGroups((prev) =>
+      prev.map((g, i) => (i === idx ? { ...g, count: c } : g)),
+    );
   };
 
-  const clearPassengers = () => setManualPassengers([]);
+  const removeGroup = (idx: number) => {
+    setManualGroups((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const clearGroups = () => setManualGroups([]);
 
   const handleRun = () => {
     if (scenario === "custom") {
-      if (manualPassengers.length === 0) {
+      if (manualGroups.length === 0) {
         alert("Dodaj co najmniej jednego pasażera.");
         return;
       }
+      // Expand groups to individual passengers
+      const passengers = manualGroups.flatMap((g) =>
+        Array.from({ length: g.count }, () => ({
+          floor: g.floor,
+          destination: g.destination,
+        })),
+      );
       onRun({
-        passengers: manualPassengers,
+        passengers,
         scenario: "custom",
         metric,
         algorithm: algorithm || undefined,
@@ -139,10 +174,12 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
       {/* Edytor pasażerów — tryb ręczny */}
       {scenario === "custom" && (
         <div className="flex flex-col gap-2">
-          <span className="text-sm text-slate-400">Pasażerowie ({manualPassengers.length})</span>
+          <span className="text-sm text-slate-400">
+            Pasażerowie ({totalManual})
+          </span>
 
-          {/* Dodaj pasażera */}
-          <div className="flex items-end gap-2">
+          {/* Dodaj grupę pasażerów */}
+          <div className="flex items-end gap-2 flex-wrap">
             <label className="flex flex-col gap-0.5">
               <span className="text-[11px] text-slate-500">Z piętra</span>
               <select
@@ -168,8 +205,19 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
                 ))}
               </select>
             </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[11px] text-slate-500">Liczba osób</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_GROUP_SIZE}
+                value={addCount}
+                onChange={(e) => setAddCount(Number(e.target.value) || 1)}
+                className="bg-slate-700 text-white rounded px-2 py-1.5 text-sm w-16"
+              />
+            </label>
             <button
-              onClick={addPassenger}
+              onClick={addGroup}
               disabled={addFloor === addDest}
               className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:text-slate-400 text-white text-sm font-bold px-3 py-1.5 rounded transition-colors"
             >
@@ -177,36 +225,49 @@ export default function ConfigPanel({ onRun, isRunning, onStop, speed, onSpeedCh
             </button>
           </div>
 
-          {/* Lista pasażerów */}
-          {manualPassengers.length > 0 && (
+          {/* Lista grup pasażerów */}
+          {manualGroups.length > 0 && (
             <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-              {manualPassengers.map((p, i) => (
+              {manualGroups.map((g, i) => (
                 <div
                   key={i}
-                  className="flex items-center justify-between bg-slate-700/50 rounded px-2 py-1 text-sm"
+                  className="flex items-center justify-between bg-slate-700/50 rounded px-2 py-1 text-sm gap-2"
                 >
-                  <span className="text-slate-300">
-                    <span className="text-amber-400 font-mono">F{p.floor}</span>
+                  <span className="text-slate-300 flex-1">
+                    <span className="text-amber-400 font-mono">F{g.floor}</span>
                     {" → "}
-                    <span className="text-green-400 font-mono">F{p.destination}</span>
+                    <span className="text-green-400 font-mono">F{g.destination}</span>
                     <span className="text-slate-500 ml-1.5 text-xs">
-                      ({p.destination > p.floor ? "↑" : "↓"})
+                      ({g.destination > g.floor ? "↑" : "↓"})
                     </span>
                   </span>
-                  <button
-                    onClick={() => removePassenger(i)}
-                    className="text-red-400 hover:text-red-300 text-xs px-1"
-                  >
-                    ✕
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-500 text-xs">×</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={MAX_GROUP_SIZE}
+                      value={g.count}
+                      onChange={(e) =>
+                        updateGroupCount(i, Number(e.target.value) || 1)
+                      }
+                      className="bg-slate-700 text-white rounded px-1.5 py-0.5 text-xs w-12 text-center"
+                    />
+                    <button
+                      onClick={() => removeGroup(i)}
+                      className="text-red-400 hover:text-red-300 text-xs px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
 
-          {manualPassengers.length > 0 && (
+          {manualGroups.length > 0 && (
             <button
-              onClick={clearPassengers}
+              onClick={clearGroups}
               className="text-xs text-slate-500 hover:text-slate-300 self-start transition-colors"
             >
               Wyczyść wszystkich

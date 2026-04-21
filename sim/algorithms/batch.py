@@ -36,20 +36,24 @@ class LargestGroupAlgorithm(Algorithm):
         if not elev.is_full and building.get_floor(elev.floor).waiting:
             return ElevatorAction(elev.id, elev.floor, open_doors=True)
 
-        # 3. Not full AND someone waiting -> keep collecting (busiest floor)
+        # 3. Not full AND someone waiting -> go to busiest floor.
+        # Don't pick up smaller groups on the way — otherwise the cabin may
+        # fill up before we reach the largest group, which defeats the
+        # point of this algorithm. We still drop off riders en route.
         if not elev.is_full:
             target = _busiest_floor(building, exclude=claimed)
             if target is None:
                 target = _busiest_floor(building, exclude=set())
             if target is not None:
-                stop = _stop_on_way(building, elev, target)
+                stop = _stop_on_way(building, elev, target, allow_board=False)
                 return ElevatorAction(elev.id, stop)
 
-        # 4. Full or nobody waiting -> deliver (most popular destination)
+        # 4. Full or nobody waiting -> deliver (most popular destination).
+        # On the way we can board anyone who fits (free ride).
         if not elev.is_empty:
             dests = Counter(p.destination for p in elev.passengers)
             target = dests.most_common(1)[0][0]
-            stop = _stop_on_way(building, elev, target)
+            stop = _stop_on_way(building, elev, target, allow_board=True)
             return ElevatorAction(elev.id, stop)
 
         return ElevatorAction(elev.id)
@@ -68,16 +72,22 @@ def _busiest_floor(building: Building, exclude: set[int]) -> int | None:
     return best_floor
 
 
-def _stop_on_way(building: Building, elev: Elevator, target: int) -> int:
+def _stop_on_way(
+    building: Building, elev: Elevator, target: int, allow_board: bool = True
+) -> int:
     """Check if there is a useful intermediate floor between current
-    position and *target* where we should stop first (someone wants
-    to exit there, or someone is waiting and we have room)."""
+    position and *target* where we should stop first.
+
+    Riders are always dropped off at their destination. When
+    ``allow_board`` is False we skip intermediate pickups so the cabin
+    arrives at *target* with as much capacity as possible.
+    """
     if target == elev.floor:
         return target
     step = 1 if target > elev.floor else -1
     for f_num in range(elev.floor + step, target, step):
         if any(p.destination == f_num for p in elev.passengers):
             return f_num
-        if not elev.is_full and building.get_floor(f_num).waiting:
+        if allow_board and not elev.is_full and building.get_floor(f_num).waiting:
             return f_num
     return target

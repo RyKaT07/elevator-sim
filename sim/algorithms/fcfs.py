@@ -54,19 +54,23 @@ class FCFSAlgorithm(Algorithm):
         if not elev.is_full and building.get_floor(elev.floor).waiting:
             return ElevatorAction(elev.id, elev.floor, open_doors=True)
 
-        # 3. Not full AND queued passengers waiting -> keep collecting
+        # 3. Not full AND queued passengers waiting -> keep collecting.
+        # Heading to a pickup target: do NOT board at intermediate floors
+        # (only drop off existing riders). This preserves capacity for the
+        # originally-called group, which could otherwise be left behind.
         if not elev.is_full:
             for pid in self._queue:
                 p = _find_passenger(building, pid)
                 if p is not None and p.origin not in claimed:
                     claimed.add(p.origin)
-                    stop = _stop_on_way(building, elev, p.origin)
+                    stop = _stop_on_way(building, elev, p.origin, allow_board=False)
                     return ElevatorAction(elev.id, stop)
 
-        # 4. Full or nobody in queue -> deliver (FCFS: first passenger first)
+        # 4. Full or nobody in queue -> deliver (FCFS: first passenger first).
+        # On the way we can board anyone who fits (free ride).
         if not elev.is_empty:
             target = elev.passengers[0].destination
-            stop = _stop_on_way(building, elev, target)
+            stop = _stop_on_way(building, elev, target, allow_board=True)
             return ElevatorAction(elev.id, stop)
 
         return ElevatorAction(elev.id)
@@ -80,14 +84,21 @@ def _find_passenger(building: Building, pid: int) -> Passenger | None:
     return None
 
 
-def _stop_on_way(building: Building, elev: Elevator, target: int) -> int:
-    """Check for useful intermediate stops between here and target."""
+def _stop_on_way(
+    building: Building, elev: Elevator, target: int, allow_board: bool = True
+) -> int:
+    """Check for useful intermediate stops between here and target.
+
+    When ``allow_board`` is False, we only stop to drop off current riders;
+    we skip floors where people are waiting, so we don't arrive at the
+    target with a full cabin.
+    """
     if target == elev.floor:
         return target
     step = 1 if target > elev.floor else -1
     for f_num in range(elev.floor + step, target, step):
         if any(p.destination == f_num for p in elev.passengers):
             return f_num
-        if not elev.is_full and building.get_floor(f_num).waiting:
+        if allow_board and not elev.is_full and building.get_floor(f_num).waiting:
             return f_num
     return target
